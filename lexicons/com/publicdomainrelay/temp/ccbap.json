@@ -1,0 +1,29 @@
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.ccbap",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Compute Contract Bid Accept Payment (CCBAP). Issued by the requester to record the on-chain x402 payment against a specific CCB.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "embed",
+          "txid"
+        ],
+        "properties": {
+          "embed": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the CCB the payment is for."
+          },
+          "txid": {
+            "type": "string",
+            "description": "On-chain transaction id of the x402 payment."
+          }
+        }
+      }
+    }
+  }
+}

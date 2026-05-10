@@ -1,0 +1,101 @@
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.ccb",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Compute Contract Bid (CCB). Issued by a provider (Bob) against a CCRFP. Includes pricing/payment terms and workload identity exchange details.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "embed",
+          "bid"
+        ],
+        "properties": {
+          "embed": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the CCRFP this CCB is bidding on."
+          },
+          "bid": {
+            "type": "ref",
+            "ref": "#bid"
+          },
+          "wif": {
+            "type": "ref",
+            "ref": "#wif"
+          }
+        }
+      }
+    },
+    "bid": {
+      "type": "object",
+      "required": [
+        "cost",
+        "currency",
+        "frequency",
+        "prepay",
+        "x402"
+      ],
+      "properties": {
+        "cost": {
+          "type": "unknown",
+          "description": "Numeric price (integer or float) per the chosen frequency."
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency code, e.g. 'USDC'."
+        },
+        "frequency": {
+          "type": "string",
+          "description": "Billing frequency, e.g. 'monthly', 'hourly', 'one-time'."
+        },
+        "prepay": {
+          "type": "boolean",
+          "description": "Whether payment is required before compute starts."
+        },
+        "x402": {
+          "type": "ref",
+          "ref": "#x402"
+        }
+      }
+    },
+    "x402": {
+      "type": "object",
+      "required": [
+        "base_url"
+      ],
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "description": "x402 payment URL template (may contain {at} and {cid} placeholders for the CCBA AT URI/CID)."
+        }
+      }
+    },
+    "wif": {
+      "type": "object",
+      "description": "Workload Identity Federation parameters used by the requester to obtain a token authorized for the provider.",
+      "properties": {
+        "issuer_uri": {
+          "type": "string"
+        },
+        "to_issue": {
+          "type": "string"
+        },
+        "token_path": {
+          "type": "string"
+        },
+        "url_path": {
+          "type": "string"
+        },
+        "url_route": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

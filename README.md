@@ -15,8 +15,9 @@
 - Alice's policy engine sees that she's denounced Eve and vouched for Bob
 - Alice issues a Compute Contract Bid Accept (CCBA) against Bob's CCB.
 - Alice issues a x402 payment to Bob per info provided in his CCB.
-  - Using the CCBA AT URI and CID.
+  - Using the CCBA AT URI and CID to the CCB's stated CCR endpoint.
 - Bob issues a Compute Contract Receipt (CCR) over the CCRFP, CCB, and CCBA
+  - The CCR references the CCRFP, the CCB, and the CCBA.
 - Bob builds to the CCRFP manifest's spec
 
 ## TODO
@@ -38,13 +39,31 @@
 
 - https://github.com/publicdomainrelay/compute-contract-provider-relay-digitalocean
 
+## Versioning
+
+Schemas are pre-stable and use the `temp` infix:
+`com.publicdomainrelay.temp.<name>`. Lexicons for all of the record types
+live under [`lexicons/`](./lexicons).
+
+When a schema stabilizes it is promoted to `com.publicdomainrelay.<name>`
+and evolved additively. Genuinely incompatible breaks bump the short name
+(`<name>V2`, `<name>V3`, ...).
+
+| Short name | Full NSID                                  |
+| ---------- | ------------------------------------------ |
+| CCRFP      | `com.publicdomainrelay.temp.ccrfp`         |
+| CCB        | `com.publicdomainrelay.temp.ccb`           |
+| CCBAP      | `com.publicdomainrelay.temp.ccbap`         |
+| CCBA       | `com.publicdomainrelay.temp.ccba`          |
+| CCR        | `com.publicdomainrelay.temp.ccr`           |
+
 ## Data Formats
 
 - Alice CCRFP manifest
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.ccrfp"
+$type: "com.publicdomainrelay.temp.ccrfp"
 cpus: 1
 mem: '512M'
 disk: '10G'
@@ -212,19 +231,19 @@ user_data: |
   - **TODO** Filter by `embed.record.cid && uri` using jq
 
 ```bash
-timeout 15s uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identity_oauth_reverse_proxy/firehose_to_ndjson.py | jq 'select(.collection | startswith("com.publicdomainrelay.ccb"))'
+timeout 15s uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identity_oauth_reverse_proxy/firehose_to_ndjson.py | jq 'select(.collection | startswith("com.publicdomainrelay.temp.ccb"))'
 ```
 
 - Bob CCB
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.ccb.simple"
+$type: "com.publicdomainrelay.temp.ccb"
 embed:
-  $type: "com.publicdomainrelay.ccrfp.simple.machine.manifest.v.0.0.0"
+  $type: "com.publicdomainrelay.temp.ccrfp"
   record:
     cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.ccrfp.simple.abstract.manifest.v.0.0.0/3m21312k9jnkl"
+    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
 bid:
   cost: 4
   currency: USDC
@@ -280,45 +299,66 @@ USDC    0.00
 SOL     0.00
 ```
 
+- Alice CCBAP (Compute Contract Bid Accept Payment) is the on-chain payment
+  receipt that references the CCB Alice paid against:
+
+```yaml
+---
+$type: "com.publicdomainrelay.temp.ccbap"
+embed:
+  $type: "com.publicdomainrelay.temp.ccb"
+  record:
+    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+txid: "0xabcdef0123456789..."
+```
+
+- Alice CCBA (Compute Contract Bid Accept) ties the CCRFP, CCB, and the CCBAP
+  (payment receipt) together. The provider's `/ccr` endpoint is fed the CCBA
+  AT URI and CID:
+
+```yaml
+---
+$type: "com.publicdomainrelay.temp.ccba"
+embed:
+  $type: "com.publicdomainrelay.temp.ccrfp"
+  record:
+    cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+bid:
+  $type: "com.publicdomainrelay.temp.ccb"
+  record:
+    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+payment:
+  embed:
+    $type: "com.publicdomainrelay.temp.ccbap"
+    record:
+      cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
+      uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccbap/3kjsdf98sdf89"
+```
+
 - Bob CCR (Compute Contract Receipt) at createRecord response returned from
   payment.base_url on x402 success which resolves to this record:
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.ccr.simple"
+$type: "com.publicdomainrelay.temp.ccr"
 rfp:
-  $type: "com.publicdomainrelay.ccrfp.simple.machine.manifest.v.0.0.0"
+  $type: "com.publicdomainrelay.temp.ccrfp"
   record:
     cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.ccrfp.simple.abstract.manifest.v.0.0.0/3m21312k9jnkl"
+    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
 bid:
-  $type: com.publicdomainrelay.ccb
+  $type: "com.publicdomainrelay.temp.ccb"
   record:
     cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.ccrfp.simple.abstract.manifest.v.0.0.0/31983y1jkdhsa"
-```
-
-- Bob CCR (Compute Contract Event) at createRecord response returned from
-  payment.base_url on x402 success which resolves to this record:
-
-```yaml
----
-$type: 'com.publicdomainrelay.ccbap.simple.v.0.0.0"
-ccrfp:
-  $type: "com.publicdomainrelay.ccrfp.simple.machine.manifest.v.0.0.0"
+    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+ccba:
+  $type: "com.publicdomainrelay.temp.ccba"
   record:
-    cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.ccrfp.simple.abstract.manifest.v.0.0.0/3m21312k9jnkl"
-bid:
-  $type: com.publicdomainrelay.ccb
-  record:
-    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.ccb/js9df8jo2j32l"
-ccr:
-  $type: com.publicdomainrelay.ccr
-  record:
-    cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.ccr/3kjsdf98sdf89"
+    cid: "bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4"
+    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3mlagijgoeb23"
 compute:
   # The IPv4 address of the provisioned compute
   ipv4: '1.1.1.1'
@@ -481,14 +521,66 @@ payload:
 
 ## Examples
 
+The full flow: create the CCRFP, then the CCB referencing the CCRFP, then the
+CCBAP (payment receipt) referencing the CCB, then the CCBA tying CCRFP/CCB/CCBAP
+together, and finally hand the CCBA AT URI/CID to the provider's `/ccr`
+endpoint.
+
 ```bash
-file="examples/data/spin-droplet-0001/0001-ccrfp/request.json"; goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" | tee "$(dirname "${file}")/response.json" | jq
+# 1. Alice creates the CCRFP
+file="examples/data/spin-droplet-0001/0001-ccrfp/request.json"
+goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
+  | tee "$(dirname "${file}")/response.json" | jq
 
-IN="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"; OUT_OLD="$(cat examples/data/spin-droplet-0001/0002-ccb/request.json | jq -c)"; echo "${OUT_OLD}" | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" --arg cid "$(echo "${IN}" | jq -r '.cid')" '.record.embed.record.uri = $uri | .record.embed.record.cid = $cid' | tee examples/data/spin-droplet-0001/0002-ccb/request.json;
+# 2. Bob creates the CCB referencing Alice's CCRFP
+IN="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
+OUT_OLD="$(cat examples/data/spin-droplet-0001/0002-ccb/request.json | jq -c)"
+echo "${OUT_OLD}" \
+  | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
+       --arg cid "$(echo "${IN}" | jq -r '.cid')" \
+       '.record.embed.record.uri = $uri | .record.embed.record.cid = $cid' \
+  | tee examples/data/spin-droplet-0001/0002-ccb/request.json
+file="examples/data/spin-droplet-0001/0002-ccb/request.json"
+goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
+  | tee "$(dirname "${file}")/response.json" | jq
 
-file="examples/data/spin-droplet-0001/0002-ccb/request.json"; goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" | tee "$(dirname "${file}")/response.json" | jq
+# 3. Alice pays Bob via x402 (recorded as CCBAP referencing the CCB)
+IN="$(cat examples/data/spin-droplet-0001/0002-ccb/response.json | jq -c)"
+OUT_OLD="$(cat examples/data/spin-droplet-0001/0003-ccbap/request.json | jq -c)"
+echo "${OUT_OLD}" \
+  | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
+       --arg cid "$(echo "${IN}" | jq -r '.cid')" \
+       '.record.embed.record.uri = $uri | .record.embed.record.cid = $cid' \
+  | tee examples/data/spin-droplet-0001/0003-ccbap/request.json
+file="examples/data/spin-droplet-0001/0003-ccbap/request.json"
+goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
+  | tee "$(dirname "${file}")/response.json" | jq
 
-curl "https://compute-contract.johnandersen777.bsky.social.fedproxy.com/ccr/$(cat examples/data/spin-droplet-0001/0002-ccb/response.json | jq -r .uri)/$(cat examples/data/spin-droplet-0001/0002-ccb/response.json | jq -r .cid)" | jq
+# 4. Alice creates the CCBA referencing CCRFP, CCB, and CCBAP
+CCRFP="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
+CCB="$(cat examples/data/spin-droplet-0001/0002-ccb/response.json | jq -c)"
+CCBAP="$(cat examples/data/spin-droplet-0001/0003-ccbap/response.json | jq -c)"
+cat examples/data/spin-droplet-0001/0004-ccba/request.json \
+  | jq \
+      --arg ccrfp_uri "$(echo "${CCRFP}" | jq -r '.uri')" \
+      --arg ccrfp_cid "$(echo "${CCRFP}" | jq -r '.cid')" \
+      --arg ccb_uri "$(echo "${CCB}" | jq -r '.uri')" \
+      --arg ccb_cid "$(echo "${CCB}" | jq -r '.cid')" \
+      --arg ccbap_uri "$(echo "${CCBAP}" | jq -r '.uri')" \
+      --arg ccbap_cid "$(echo "${CCBAP}" | jq -r '.cid')" \
+      '.record.embed.record.uri = $ccrfp_uri
+       | .record.embed.record.cid = $ccrfp_cid
+       | .record.bid.record.uri = $ccb_uri
+       | .record.bid.record.cid = $ccb_cid
+       | .record.payment.embed.record.uri = $ccbap_uri
+       | .record.payment.embed.record.cid = $ccbap_cid' \
+  | tee examples/data/spin-droplet-0001/0004-ccba/request.json
+file="examples/data/spin-droplet-0001/0004-ccba/request.json"
+goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
+  | tee "$(dirname "${file}")/response.json" | jq
+
+# 5. Hand the CCBA AT URI/CID to the provider's /ccr endpoint to spin compute
+curl "https://compute-contract.johnandersen777.bsky.social.fedproxy.com/ccr/$(cat examples/data/spin-droplet-0001/0004-ccba/response.json | jq -r .uri)/$(cat examples/data/spin-droplet-0001/0004-ccba/response.json | jq -r .cid)" | jq
 ```
 
 Read CCRFPs from the firehose
@@ -502,9 +594,9 @@ uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identity_oauth_reve
 ```json
 {
   "repo": "did:plc:alice0000000000000000000",
-  "collection": "com.publicdomainrelay.ccrfp",
+  "collection": "com.publicdomainrelay.temp.ccrfp",
   "record": {
-    "$type": "com.publicdomainrelay.ccrfp",
+    "$type": "com.publicdomainrelay.temp.ccrfp",
     "cpus": 1,
     "mem": "512M",
     "disk": "10G",
@@ -524,15 +616,15 @@ goat get $(goat xrpc procedure @pds com.atproto.repo.createRecord - < request.js
   "seq": 29814868114,
   "time": "2026-05-07T03:26:47.466Z",
   "action": "create",
-  "collection": "com.publicdomainrelay.ccrfp",
+  "collection": "com.publicdomainrelay.temp.ccrfp",
   "rkey": "3mlabgut5c62t",
-  "uri": "at://did:plc:alice0000000000000000000/com.publicdomainrelay.ccrfp/3mlabgut5c62t",
+  "uri": "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3mlabgut5c62t",
   "record_type": "unknown",
   "record": {
     "mem": "512M",
     "cpus": 1,
     "disk": "10G",
-    "$type": "com.publicdomainrelay.ccrfp",
+    "$type": "com.publicdomainrelay.temp.ccrfp",
     "network": "500G"
   }
 }
@@ -548,7 +640,7 @@ $ (set -x; for dir in $(ls examples/data/spin-droplet-0001/); do file="examples/
 + yq -P
 ++ dirname examples/data/spin-droplet-0001/0001-ccrfp/request.json
 + tee examples/data/spin-droplet-0001/0001-ccrfp/response.json
-uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.ccrfp/3mlabxf5xxg2t
+uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlabxf5xxg2t
 cid: bafyreiblivinfkc2hqhoe367b5ggdlieyviyun652g7qxn2p2rl4orfpsq
 commit:
   cid: bafyreibszjqfmvk6nbrdofqjkwvrvcdscphoidun6yxrtm55quhaylj62a

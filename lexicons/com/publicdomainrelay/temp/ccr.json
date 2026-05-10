@@ -1,0 +1,73 @@
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.ccr",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Compute Contract Receipt (CCR). Issued by the provider after spinning compute. References the CCRFP, CCB, and CCBA that authorized this compute.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "rfp",
+          "bid",
+          "ccba",
+          "createdAt"
+        ],
+        "properties": {
+          "rfp": {
+            "type": "ref",
+            "ref": "#typedRef",
+            "description": "Reference to the CCRFP that was fulfilled."
+          },
+          "bid": {
+            "type": "ref",
+            "ref": "#typedRef",
+            "description": "Reference to the accepted CCB."
+          },
+          "ccba": {
+            "type": "ref",
+            "ref": "#typedRef",
+            "description": "Reference to the CCBA that authorized this compute."
+          },
+          "compute": {
+            "type": "ref",
+            "ref": "#compute",
+            "description": "Information about the provisioned compute."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    },
+    "typedRef": {
+      "type": "object",
+      "required": [
+        "$type",
+        "record"
+      ],
+      "properties": {
+        "$type": {
+          "type": "string"
+        },
+        "record": {
+          "type": "ref",
+          "ref": "com.atproto.repo.strongRef"
+        }
+      }
+    },
+    "compute": {
+      "type": "object",
+      "properties": {
+        "ipv4": {
+          "type": "string"
+        },
+        "ipv6": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

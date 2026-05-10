@@ -1,0 +1,92 @@
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.ccba",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Compute Contract Bid Accept (CCBA). Issued by the requester to indicate which CCB they are accepting. References the CCRFP, CCB, and CCBAP (payment receipt). The CCBA AT URI/CID is what is submitted to the provider's /ccr endpoint.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "embed",
+          "bid",
+          "payment"
+        ],
+        "properties": {
+          "embed": {
+            "type": "ref",
+            "ref": "#ccrfpRef",
+            "description": "Reference to the CCRFP being fulfilled."
+          },
+          "bid": {
+            "type": "ref",
+            "ref": "#ccbRef",
+            "description": "Reference to the accepted CCB."
+          },
+          "payment": {
+            "type": "ref",
+            "ref": "#paymentRef",
+            "description": "Reference to the CCBAP that records the x402 payment proof."
+          }
+        }
+      }
+    },
+    "ccrfpRef": {
+      "type": "object",
+      "required": [
+        "$type",
+        "record"
+      ],
+      "properties": {
+        "$type": {
+          "type": "string"
+        },
+        "record": {
+          "type": "ref",
+          "ref": "com.atproto.repo.strongRef"
+        }
+      }
+    },
+    "ccbRef": {
+      "type": "object",
+      "required": [
+        "$type",
+        "record"
+      ],
+      "properties": {
+        "$type": {
+          "type": "string"
+        },
+        "record": {
+          "type": "ref",
+          "ref": "com.atproto.repo.strongRef"
+        }
+      }
+    },
+    "paymentRef": {
+      "type": "object",
+      "required": [
+        "embed"
+      ],
+      "properties": {
+        "embed": {
+          "type": "object",
+          "required": [
+            "$type",
+            "record"
+          ],
+          "properties": {
+            "$type": {
+              "type": "string"
+            },
+            "record": {
+              "type": "ref",
+              "ref": "com.atproto.repo.strongRef"
+            }
+          }
+        }
+      }
+    }
+  }
+}

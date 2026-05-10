@@ -1,13 +1,13 @@
 {
   "repo": "did:plc:5svqtrhheairglgiiyvutzik",
-  "collection": "com.publicdomainrelay.ccbap",
+  "collection": "com.publicdomainrelay.temp.ccbap",
   "record": {
-    "$type": "com.publicdomainrelay.ccbap",
+    "$type": "com.publicdomainrelay.temp.ccbap",
     "embed": {
-      "$type": "com.publicdomainrelay.ccb",
+      "$type": "com.publicdomainrelay.temp.ccb",
       "record": {
         "cid": "bafyreibh2wsioan6asp62mh4bzblt7m3z2kndvko3rjo3zgw5irsvl3noe",
-        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.ccb/3mlafsnk2i52c"
+        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccb/3mlafsnk2i52c"
       }
     },
     "txid": "some-txid"

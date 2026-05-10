@@ -1,27 +1,27 @@
 {
   "repo": "did:plc:5svqtrhheairglgiiyvutzik",
-  "collection": "com.publicdomainrelay.ccba",
+  "collection": "com.publicdomainrelay.temp.ccba",
   "record": {
-    "$type": "com.publicdomainrelay.ccba",
+    "$type": "com.publicdomainrelay.temp.ccba",
     "embed": {
-      "$type": "com.publicdomainrelay.ccrfp",
+      "$type": "com.publicdomainrelay.temp.ccrfp",
       "record": {
         "cid": "bafyreiblivinfkc2hqhoe367b5ggdlieyviyun652g7qxn2p2rl4orfpsq",
-        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.ccrfp/3mlabxf5xxg2t"
+        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlabxf5xxg2t"
       }
     },
     "bid": {
-      "$type": "com.publicdomainrelay.ccb",
+      "$type": "com.publicdomainrelay.temp.ccb",
       "record": {
         "cid": "bafyreibh2wsioan6asp62mh4bzblt7m3z2kndvko3rjo3zgw5irsvl3noe",
-        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.ccb/3mlafsnk2i52c"
+        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccb/3mlafsnk2i52c"
       }
     },
     "payment": {
       "embed": {
-        "$type": "com.publicdomainrelay.ccbap",
+        "$type": "com.publicdomainrelay.temp.ccbap",
         "record": {
-          "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.ccbap/3mlag6phdgn2r",
+          "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccbap/3mlag6phdgn2r",
           "cid": "bafyreidnqgayuw6rnl6g4tn3saptwbrcfnhftfjs4dgcdvzojatugulvv4"
         }
       }
