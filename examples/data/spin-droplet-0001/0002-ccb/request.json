@@ -4,11 +4,8 @@
   "record": {
     "$type": "com.publicdomainrelay.temp.ccb",
     "embed": {
-      "$type": "com.publicdomainrelay.temp.ccrfp",
-      "record": {
-        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlf7tjlfjr2d",
-        "cid": "bafyreiccaougmp3654xsmrwjpihbsjyxzbcyvvnwhry2cci5fh2ubjtf74"
-      }
+      "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlf7tjlfjr2d",
+      "cid": "bafyreiccaougmp3654xsmrwjpihbsjyxzbcyvvnwhry2cci5fh2ubjtf74"
     },
     "bid": {
       "cost": 4,

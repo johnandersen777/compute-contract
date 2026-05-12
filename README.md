@@ -240,10 +240,8 @@ timeout 15s uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identit
 ---
 $type: "com.publicdomainrelay.temp.ccb"
 embed:
-  $type: "com.publicdomainrelay.temp.ccrfp"
-  record:
-    cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
 bid:
   cost: 4
   currency: USDC
@@ -306,10 +304,8 @@ SOL     0.00
 ---
 $type: "com.publicdomainrelay.temp.ccbap"
 embed:
-  $type: "com.publicdomainrelay.temp.ccb"
-  record:
-    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
 txid: "0xabcdef0123456789..."
 ```
 
@@ -321,21 +317,14 @@ txid: "0xabcdef0123456789..."
 ---
 $type: "com.publicdomainrelay.temp.ccba"
 embed:
-  $type: "com.publicdomainrelay.temp.ccrfp"
-  record:
-    cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
 bid:
-  $type: "com.publicdomainrelay.temp.ccb"
-  record:
-    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
 payment:
-  embed:
-    $type: "com.publicdomainrelay.temp.ccbap"
-    record:
-      cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
-      uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccbap/3kjsdf98sdf89"
+  cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccbap/3kjsdf98sdf89"
 ```
 
 - Bob CCR (Compute Contract Receipt) at createRecord response returned from
@@ -345,20 +334,14 @@ payment:
 ---
 $type: "com.publicdomainrelay.temp.ccr"
 rfp:
-  $type: "com.publicdomainrelay.temp.ccrfp"
-  record:
-    cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
 bid:
-  $type: "com.publicdomainrelay.temp.ccb"
-  record:
-    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
 ccba:
-  $type: "com.publicdomainrelay.temp.ccba"
-  record:
-    cid: "bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3mlagijgoeb23"
+  cid: "bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3mlagijgoeb23"
 compute:
   # The IPv4 address of the provisioned compute
   ipv4: '1.1.1.1'

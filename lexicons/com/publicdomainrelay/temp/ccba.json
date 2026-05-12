@@ -16,74 +16,18 @@
         "properties": {
           "embed": {
             "type": "ref",
-            "ref": "#ccrfpRef",
-            "description": "Reference to the CCRFP being fulfilled."
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the CCRFP being fulfilled."
           },
           "bid": {
             "type": "ref",
-            "ref": "#ccbRef",
-            "description": "Reference to the accepted CCB."
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the accepted CCB."
           },
           "payment": {
             "type": "ref",
-            "ref": "#paymentRef",
-            "description": "Reference to the CCBAP that records the x402 payment proof."
-          }
-        }
-      }
-    },
-    "ccrfpRef": {
-      "type": "object",
-      "required": [
-        "$type",
-        "record"
-      ],
-      "properties": {
-        "$type": {
-          "type": "string"
-        },
-        "record": {
-          "type": "ref",
-          "ref": "com.atproto.repo.strongRef"
-        }
-      }
-    },
-    "ccbRef": {
-      "type": "object",
-      "required": [
-        "$type",
-        "record"
-      ],
-      "properties": {
-        "$type": {
-          "type": "string"
-        },
-        "record": {
-          "type": "ref",
-          "ref": "com.atproto.repo.strongRef"
-        }
-      }
-    },
-    "paymentRef": {
-      "type": "object",
-      "required": [
-        "embed"
-      ],
-      "properties": {
-        "embed": {
-          "type": "object",
-          "required": [
-            "$type",
-            "record"
-          ],
-          "properties": {
-            "$type": {
-              "type": "string"
-            },
-            "record": {
-              "type": "ref",
-              "ref": "com.atproto.repo.strongRef"
-            }
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the CCBAP that records the x402 payment proof."
           }
         }
       }

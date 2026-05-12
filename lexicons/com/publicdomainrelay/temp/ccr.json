@@ -17,18 +17,18 @@
         "properties": {
           "rfp": {
             "type": "ref",
-            "ref": "#typedRef",
-            "description": "Reference to the CCRFP that was fulfilled."
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the CCRFP that was fulfilled."
           },
           "bid": {
             "type": "ref",
-            "ref": "#typedRef",
-            "description": "Reference to the accepted CCB."
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the accepted CCB."
           },
           "ccba": {
             "type": "ref",
-            "ref": "#typedRef",
-            "description": "Reference to the CCBA that authorized this compute."
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the CCBA that authorized this compute."
           },
           "compute": {
             "type": "ref",
@@ -39,22 +39,6 @@
             "type": "string",
             "format": "datetime"
           }
-        }
-      }
-    },
-    "typedRef": {
-      "type": "object",
-      "required": [
-        "$type",
-        "record"
-      ],
-      "properties": {
-        "$type": {
-          "type": "string"
-        },
-        "record": {
-          "type": "ref",
-          "ref": "com.atproto.repo.strongRef"
         }
       }
     },

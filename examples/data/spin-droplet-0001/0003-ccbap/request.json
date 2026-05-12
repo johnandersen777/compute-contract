@@ -4,11 +4,8 @@
   "record": {
     "$type": "com.publicdomainrelay.temp.ccbap",
     "embed": {
-      "$type": "com.publicdomainrelay.temp.ccb",
-      "record": {
-        "cid": "bafyreibh2wsioan6asp62mh4bzblt7m3z2kndvko3rjo3zgw5irsvl3noe",
-        "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccb/3mlafsnk2i52c"
-      }
+      "cid": "bafyreibh2wsioan6asp62mh4bzblt7m3z2kndvko3rjo3zgw5irsvl3noe",
+      "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccb/3mlafsnk2i52c"
     },
     "txid": "some-txid"
   }
