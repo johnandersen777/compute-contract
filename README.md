@@ -350,6 +350,11 @@ compute:
 ## Generic: Marketplace Exchange Wrappers (one level up)
 
 - TODO
+  - https://discourse.atprotocol.community/t/tranquil-instance-for-delegated-accounts/850
+    - tranquil instance and accounts as an example
+    - RFP for VPS
+    - RFP for Tranquil on VPS
+    - RFP for Account on Tranquil PDS
   - https://attested.network/scenarios.html
     - Use attested.network `"$type": "com.atproto.repo.strongRef",` as best practice here
     - Also use attested.network for payments eventually
