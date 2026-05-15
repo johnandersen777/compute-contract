@@ -355,6 +355,19 @@ compute:
     - RFP for VPS
     - RFP for Tranquil on VPS
     - RFP for Account on Tranquil PDS
+    - Maybe work backwards with patterns and anti-patterns adhearence baked in
+      for downstream.
+      - Frank requests account for Agent Charlie
+      - Alice sees RFP for Charlie Account and makes RFP for VPS
+      - Bob sees Alice RFP and Bids
+      - Alice sees Bob's bid and adds her setup fee, then returns her bid
+      - There should be a way to pay with a voucher of some kind that is not
+        real currency. For Dave may grant a voucher for creation of Agent
+        Charlie because Agent Charlie's requisition flow is to be funded from
+        the [AT Community Fund](https://discourse.atprotocol.community/t/about-the-community-fund-category/27).
+        In this case we need a way for Bob and Alice to say they will do it
+        pro-bono for the AT Community Fund's sake. Or to accept indirect payment
+        from the fund instead of from Frank directly.
   - https://attested.network/scenarios.html
     - Use attested.network `"$type": "com.atproto.repo.strongRef",` as best practice here
     - Also use attested.network for payments eventually
