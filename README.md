@@ -342,6 +342,14 @@ compute:
   - https://gist.github.com/johnandersen777/76d6773f79500f036f989ae9caaa85f0
 - fedproxy auto rbac via records similar to ssh keys
 
+```bash
+docker model pull hf.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q2_K_XL
+
+docker run -d --restart=unless-stopped --name llama-mtp-8k-no-reasoning --device /dev/dri --device /dev/kfd     -e HIP_VISIBLE_DEVICES=0 -e ROCR_VISIBLE_DEVICES=0     -v docker-model-runner-models:/models -p 127.0.0.1:12434:12434     --entrypoint /app/llama-server docker/model-runner:mtp     -m /models/bundles/sha256/60b929136fc442800ef3cc2b200e026419c6b30b704c2ae7bf4b4a31957dde72/model/model.gguf     --host 0.0.0.0 --port 12434 -c 131072 -np 1 -ngl 999 --device ROCm0     -fa on     --cache-type-k q8_0 --cache-type-v q8_0     --spec-type draft-mtp --spec-draft-n-max 3 --reasoning-budget 0 --no-mmproj
+
+docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubuntu:latest /home/agent/.opencode/bin/opencode serve --port 4096
+```
+
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
