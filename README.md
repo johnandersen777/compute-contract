@@ -338,6 +338,8 @@ compute:
 - Notes
   - https://zicklag.leaflet.pub/3mjrvb5pul224
   - https://nelind.leaflet.pub/3mljaycxcqc2h
+- `opencode export|import`
+  - https://gist.github.com/johnandersen777/76d6773f79500f036f989ae9caaa85f0
 
 The `cc`-prefixed records carry compute-specific data for the marketplace exchange. The generic marketplace envelopes below — `rfp`, `bid`, `bid.accept`, `receipt` — wrap that compute-specific payload via strongRefs (`{uri, cid}`), so the same outer protocol can be reused for non-compute marketplaces by swapping the inner `cc*` record for some other domain-specific record type.
 
