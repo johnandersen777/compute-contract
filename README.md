@@ -340,6 +340,32 @@ compute:
   - https://nelind.leaflet.pub/3mljaycxcqc2h
 - `opencode export|import`
   - https://gist.github.com/johnandersen777/76d6773f79500f036f989ae9caaa85f0
+- fedproxy auto rbac via records similar to ssh keys
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "llama.cpp/qwen3.6-mtp",
+  "provider": {
+    "llama.cpp": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "llama-server (local)",
+      "options": {
+        "baseURL": "https://qwen-0001.johnandersen777.bsky.social.fedproxy.com/v1"
+      },
+      "models": {
+        "qwen3.6-mtp": {
+          "name": "Qwen3.6-35B-A3B-MTP-GGUF:UD-Q2_K_XL",
+          "limit": {
+            "context": 131072,
+            "output": 65536
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 The `cc`-prefixed records carry compute-specific data for the marketplace exchange. The generic marketplace envelopes below — `rfp`, `bid`, `bid.accept`, `receipt` — wrap that compute-specific payload via strongRefs (`{uri, cid}`), so the same outer protocol can be reused for non-compute marketplaces by swapping the inner `cc*` record for some other domain-specific record type.
 
