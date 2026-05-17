@@ -27,24 +27,425 @@
 All cross-record references use `com.atproto.repo.strongRef`
 (`{$type, uri, cid}`), so the chain is content-addressed end-to-end.
 
-## TODO
-
-- Bob makes a Compute Contract Event (CCE) and makes it available to the network
-  - The event is the `heartbeat=1` event. Indicating the compute has entered a
-    state where it is now functional.
-- Alice confirms the compute is functional
-- Alice issues a Compute Contract Event Accept (CCEA) on the network
-- Bob issues a Compute Contract Event (CCE) on the network
-  - The event is the `heartbeat=2` event.
-- Alice is done using the compute
-- Alice issues the Compute Contract Finalize (CCF) event to the network
-- Bob issues a Compute Contract Event (CCE) on the network
-  - The event is the `heartbeat=0` event. The compute contract is now complete.
-- Compensation can be tied to these heartbeat events.
-
 ## References
 
 - https://github.com/publicdomainrelay/compute-contract-provider-relay-digitalocean
+- https://github.com/publicdomainrelay/atproto-reverse-proxy
+- https://github.com/publicdomainrelay/agent-atproto-typescript
+
+## Flow
+
+End-to-end walkthrough of the RFP → Bid → Accept → Receipt lifecycle as
+expressed by the lexicons under `lexicons/com/publicdomainrelay/temp/`.
+Records are shown in YAML for readability; on the wire they are JSON
+records living in ATProto repositories.
+
+## Actors
+
+| Actor    | Role                                                          |
+|----------|---------------------------------------------------------------|
+| Alice    | Requester. Authors the **RFP** and later the **Accept**.      |
+| Bob      | Provider. Authors **Bids** and the **Receipt**.               |
+| Relay    | Optional broker / hook host that turns firehose commits into HTTP webhooks (e.g. airglow). |
+| PDS      | Each actor's ATProto Personal Data Server holding their records. |
+| Firehose | `com.atproto.sync.subscribeRepos` / Jetstream — public commit stream. |
+
+## Record cheatsheet
+
+All records are pre-stable and live under `com.publicdomainrelay.temp.*`.
+Each cross-record pointer is a `com.atproto.repo.strongRef`
+(`{$type, uri, cid}`).
+
+```mermaid
+classDiagram
+    class RFP {
+      +strongRef payload  // -> VM
+    }
+    class VM {
+      +int cpus
+      +string mem
+      +string disk
+      +string network
+      +string role
+      +string user_data
+      +Location location?
+    }
+    class Bid {
+      +strongRef rfp      // -> RFP
+      +strongRef payload  // -> BidsX402
+      +strongRef config?  // -> WIFSimple
+    }
+    class BidsX402 {
+      +unknown cost
+      +string currency
+      +string frequency
+      +bool prepay
+      +string url
+    }
+    class WIFSimple {
+      +string accept_path
+      +string issuer_uri
+      +string to_issue
+      +string token_path
+      +string url_path
+      +string url_route
+      +string subject
+    }
+    class Accept {
+      +strongRef rfp      // -> RFP
+      +strongRef bid      // -> Bid
+      +strongRef payload? // domain note
+    }
+    class Receipt {
+      +strongRef rfp      // -> RFP
+      +strongRef bid      // -> Bid
+      +strongRef accept   // -> Accept
+      +strongRef payload? // domain note
+    }
+    RFP --> VM : payload
+    Bid --> RFP : rfp
+    Bid --> BidsX402 : payload
+    Bid --> WIFSimple : config
+    Accept --> RFP : rfp
+    Accept --> Bid : bid
+    Receipt --> RFP : rfp
+    Receipt --> Bid : bid
+    Receipt --> Accept : accept
+```
+
+## State machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> RFP_Open : Alice creates RFP + VM
+    RFP_Open --> Bidding : Firehose fan-out / hook fires
+    Bidding --> Bidding : Provider creates Bid
+    Bidding --> Scoring : Listen window elapses
+    Scoring --> Rejected : no bid passes policy
+    Scoring --> Accepted : Alice creates Accept
+    Accepted --> Settling : Bob serves the contract / collects payment
+    Settling --> Settled : Bob creates Receipt
+    Rejected --> [*]
+    Settled --> [*]
+```
+
+## End-to-end sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Alice (requester)
+    participant AP as Alice PDS
+    participant FH as Firehose
+    participant HK as Hook host (relay)
+    participant B as Bob (provider)
+    participant BP as Bob PDS
+    participant PR as Provider relay (/receipt)
+    participant X4 as x402 endpoint
+    participant VM as Provisioned VM
+
+    A->>AP: createRecord compute.vm
+    A->>AP: createRecord market.rfp { payload -> vm }
+    AP-->>FH: commit (market.rfp)
+    FH-->>HK: jetstream / firehose event
+    HK->>B: POST /hook/rfp (webhook envelope)
+    par bid window (N seconds)
+        B->>BP: createRecord bids.x402
+        B->>BP: createRecord config.wif.simple
+        B->>BP: createRecord market.bid { rfp, payload, config }
+        BP-->>FH: commit (market.bid)
+        FH-->>A: jetstream (bid for my rfp)
+    end
+    A->>A: policy filter + scorer (lowest cost)
+    A->>AP: createRecord market.accept { rfp, bid }
+    A->>X4: GET / pay (url filled with accept uri+cid)
+    X4->>PR: POST /receipt/{accept.uri}/{accept.cid}
+    PR->>BP: resolve accept -> bid -> rfp -> vm + config
+    PR->>VM: provision (cloud-init writes accept.json, runs role)
+    PR->>BP: createRecord market.receipt { rfp, bid, accept }
+    BP-->>A: receipt strongRef
+```
+
+## Step-by-step records
+
+### 1. Alice publishes the VM (payload of the RFP)
+
+```yaml
+$type: com.publicdomainrelay.temp.compute.vm
+cpus: 2
+mem: 4G
+disk: 40G
+network: 500G
+role: my-cool-role
+user_data: |
+  #cloud-config
+  runcmd:
+    - [sh, -c, "echo hello > /var/log/hi"]
+location:
+  country: USA
+  region: west
+# rkey assigned by PDS, e.g. 3mm3dolfolz2c
+# uri: at://did:plc:alice/com.publicdomainrelay.temp.compute.vm/3mm3dolfolz2c
+# cid: bafyreif4toqzci4nu3thujm2quurs4h432qk3gxvmkwze2wrrznn757omi
+```
+
+### 2. Alice publishes the RFP envelope
+
+```yaml
+$type: com.publicdomainrelay.temp.market.rfp
+payload:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:alice/com.publicdomainrelay.temp.compute.vm/3mm3dolfolz2c
+  cid: bafyreif4toqzci4nu3thujm2quurs4h432qk3gxvmkwze2wrrznn757omi
+# uri: at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mm3doliee72s
+# cid: bafyreib5u2krsumyya5eiqc7ys7iz3xxlourd34p7qlpehi7a7h2kdc3ia
+```
+
+### 3. Firehose → webhook envelope (airglow shape)
+
+This is what relays/hook hosts deliver to a `/hook/rfp` style route.
+
+```yaml
+automation: at://did:plc:relay/run.airglow.automation/3mlywhsfdz222
+lexicon: com.publicdomainrelay.temp.market.rfp
+event:
+  did: did:plc:alice
+  time_us: 1747503000000000
+  kind: commit
+  commit:
+    operation: create
+    collection: com.publicdomainrelay.temp.market.rfp
+    rkey: 3mm3doliee72s
+    cid: bafyreib5u2krsumyya5eiqc7ys7iz3xxlourd34p7qlpehi7a7h2kdc3ia
+    record:
+      $type: com.publicdomainrelay.temp.market.rfp
+      payload:
+        $type: com.atproto.repo.strongRef
+        uri: at://did:plc:alice/com.publicdomainrelay.temp.compute.vm/3mm3dolfolz2c
+        cid: bafyreif4toqzci4nu3thujm2quurs4h432qk3gxvmkwze2wrrznn757omi
+```
+
+### 4. Bob publishes the x402 pricing payload
+
+```yaml
+$type: com.publicdomainrelay.temp.market.bids.x402
+cost: 0.10
+currency: USDC
+frequency: hourly
+prepay: true
+# {at}/{cid} get replaced by Alice with the accept's AT URI / CID
+url: https://compute-contract.bob.example/receipt
+# uri: at://did:plc:bob/com.publicdomainrelay.temp.market.bids.x402/3mm4...
+```
+
+### 5. Bob publishes the WIF config
+
+`accept_path` is required — Bob will read the fully-resolved accept
+bundle from this path inside the VM (cloud-init `write_files` puts it
+there). Use `$HOME` in the record; at provision time it resolves to
+`/root` for the root-user cloud-init.
+
+```yaml
+$type: com.publicdomainrelay.temp.compute.config.wif.simple
+accept_path: $HOME/secrets/publicdomainrelay.com/market/accept.json
+issuer_uri: https://droplet-oidc.its1337.com
+to_issue: api://DigitalOcean?actx=...
+token_path: /var/run/secrets/wid/token
+url_path: /var/run/secrets/wid/url
+url_route: /v1/oidc/issue
+subject: actx:<team-uuid>:plc:<alice-did>:role:my-cool-role
+# uri: at://did:plc:bob/com.publicdomainrelay.temp.compute.config.wif.simple/3mm4...
+```
+
+### 6. Bob publishes the bid envelope
+
+```yaml
+$type: com.publicdomainrelay.temp.market.bid
+rfp:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mm3doliee72s
+  cid: bafyreib5u2krsumyya5eiqc7ys7iz3xxlourd34p7qlpehi7a7h2kdc3ia
+payload:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bob/com.publicdomainrelay.temp.market.bids.x402/3mm4...
+  cid: bafyrei...x402
+config:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bob/com.publicdomainrelay.temp.compute.config.wif.simple/3mm4...
+  cid: bafyrei...wif
+```
+
+### 7. Alice runs policy + scoring during the bid window
+
+```mermaid
+flowchart LR
+    A[bids collected<br/>from jetstream] --> P{policy<br/>allow/deny by DID}
+    P -->|drop| X1[(log reason)]
+    P --> R[resolve bid.payload]
+    R --> H{plugin exists<br/>for payload $type?}
+    H -->|no| X2[(drop + log)]
+    H -->|yes| S[score: lowest cost wins]
+    S --> ACC[create market.accept]
+```
+
+Defaults (in the reference acceptor): empty allowlist + empty denylist
+means "accept all"; scorer is lowest numeric `cost`.
+
+### 8. Alice publishes the Accept
+
+```yaml
+$type: com.publicdomainrelay.temp.market.accept
+rfp:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mm3doliee72s
+  cid: bafyreib5u2krsumyya5eiqc7ys7iz3xxlourd34p7qlpehi7a7h2kdc3ia
+bid:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bob/com.publicdomainrelay.temp.market.bid/3mm4...
+  cid: bafyrei...bid
+# uri: at://did:plc:alice/com.publicdomainrelay.temp.market.accept/3mlagijgoeb23
+# cid: bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4
+```
+
+### 9. Alice triggers payment / settlement
+
+The provider's `bids.x402.url` is concatenated with the accept's URI
+and CID and called (GET to probe, or `npx awal x402 pay <url>` to
+actually settle):
+
+```
+${bids.x402.url}/${accept.uri}/${accept.cid}
+=> https://compute-contract.bob.example/receipt/
+   at://did:plc:alice/com.publicdomainrelay.temp.market.accept/3mlagijgoeb23/
+   bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4
+```
+
+### 10. Provider relay resolves the chain and provisions
+
+```mermaid
+flowchart TD
+    URL[receive /receipt/&lt;accept.uri&gt;/&lt;accept.cid&gt;] --> ACC[fetch market.accept]
+    ACC --> BID[fetch market.bid]
+    BID --> RFP[fetch market.rfp]
+    RFP --> VM[fetch compute.vm]
+    BID --> PAY[fetch bids.x402]
+    BID --> CFG[fetch config.wif.simple]
+    VM --> BUNDLE[assemble accept bundle JSON]
+    PAY --> BUNDLE
+    CFG --> BUNDLE
+    ACC --> BUNDLE
+    RFP --> BUNDLE
+    BUNDLE --> CI[inject write_files + runcmd<br/>into vm.user_data]
+    CI --> DROPLET[create_droplet]
+    DROPLET --> RECEIPT[create market.receipt]
+```
+
+### 11. Cloud-init bundle dropped on the VM
+
+The provider takes `vm.user_data`, parses it as `#cloud-config`
+(creating one if absent), and inserts:
+
+```yaml
+#cloud-config
+write_files:
+  - path: /root/secrets/publicdomainrelay.com/market/accept.json
+    owner: root:root
+    permissions: '0600'
+    content: |
+      {
+        "accept":   { "uri": "...", "cid": "...", "value": { ... } },
+        "rfp":      { "uri": "...", "cid": "...", "value": { ... } },
+        "bid":      { "uri": "...", "cid": "...", "value": { ... } },
+        "vm":       { "uri": "...", "cid": "...", "value": { ... } },
+        "x402":     { "uri": "...", "cid": "...", "value": { ... } },
+        "wif":      { "uri": "...", "cid": "...", "value": { ... } }
+      }
+runcmd:
+  - [sh, -c, "install -d -m 0700 -o root -g root /root/secrets/publicdomainrelay.com/market"]
+  # ... whatever else was already in user_data
+```
+
+`config.wif.simple.accept_path` (with `$HOME` -> `/root`) tells the
+workload inside the VM exactly where to read this file.
+
+### 12. Bob publishes the Receipt
+
+```yaml
+$type: com.publicdomainrelay.temp.market.receipt
+rfp:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mm3doliee72s
+  cid: bafyreib5u2krsumyya5eiqc7ys7iz3xxlourd34p7qlpehi7a7h2kdc3ia
+bid:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bob/com.publicdomainrelay.temp.market.bid/3mm4...
+  cid: bafyrei...bid
+accept:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:alice/com.publicdomainrelay.temp.market.accept/3mlagijgoeb23
+  cid: bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4
+# uri: at://did:plc:bob/com.publicdomainrelay.temp.market.receipt/3mld67yj3xo2u
+# cid: bafyreibzynxkkoxxvppbfoeh5s2s2asrm2j7ziw2ol5ufau4q25d7ousiy
+```
+
+## Authority and validation rules
+
+```mermaid
+flowchart TB
+    subgraph Alice
+      RFP1[market.rfp]:::alice
+      VM1[compute.vm]:::alice
+      ACC1[market.accept]:::alice
+    end
+    subgraph Bob
+      BID1[market.bid]:::bob
+      X4[bids.x402]:::bob
+      WIF[config.wif.simple]:::bob
+      RCP[market.receipt]:::bob
+    end
+    RFP1 --> VM1
+    BID1 --> RFP1
+    BID1 --> X4
+    BID1 --> WIF
+    ACC1 --> RFP1
+    ACC1 --> BID1
+    RCP --> RFP1
+    RCP --> BID1
+    RCP --> ACC1
+    classDef alice fill:#dfe,stroke:#393
+    classDef bob fill:#def,stroke:#339
+```
+
+- `Accept.rfp.uri` MUST equal `Bid.rfp.uri` (and CIDs must match) —
+  the provider relay refuses to settle otherwise.
+- `Accept` MUST be authored by the same DID that authored the
+  referenced RFP. Otherwise anyone could settle anyone else's RFP.
+- `Receipt` MUST be authored by the same DID that authored the
+  referenced Bid.
+- `bids.x402.url` is a template; `{at}` and `{cid}` are placeholders
+  replaced by Alice with the Accept's AT URI/CID before calling.
+
+## Discovery via backlinks
+
+The graph is followed both directions. Forward via the strongRefs in
+each record; backward via a backlink indexer such as Constellation
+(`https://constellation.microcosm.blue/links/all?target=<at-uri>`),
+which lets an actor enumerate, e.g., all bids that point at a given
+RFP without scanning the firehose.
+
+```mermaid
+flowchart LR
+    RFP[market.rfp] -. "backlinks: bid.rfp" .-> BID[market.bid]
+    BID -. "backlinks: accept.bid" .-> ACC[market.accept]
+    ACC -. "backlinks: receipt.accept" .-> RCP[market.receipt]
+```
+
+## Naming and versioning
+
+- All NSIDs are under `com.publicdomainrelay.temp.*` while pre-stable.
+- When stable: drop the `.temp.` segment; evolve schemas additively.
+- Genuine breaking changes get a numeric suffix on the implementing
+  model (e.g. `RFP_v0_1_0`) rather than a new lexicon.
 
 ## Data Formats
 
@@ -999,6 +1400,21 @@ uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.rfp/3mlabx
 cid: bafyreidexamplecidforthetoprfprecord000000000000000000000000
 validationStatus: unknown
 ```
+
+## TODO
+
+- Bob makes a Compute Contract Event (CCE) and makes it available to the network
+  - The event is the `heartbeat=1` event. Indicating the compute has entered a
+    state where it is now functional.
+- Alice confirms the compute is functional
+- Alice issues a Compute Contract Event Accept (CCEA) on the network
+- Bob issues a Compute Contract Event (CCE) on the network
+  - The event is the `heartbeat=2` event.
+- Alice is done using the compute
+- Alice issues the Compute Contract Finalize (CCF) event to the network
+- Bob issues a Compute Contract Event (CCE) on the network
+  - The event is the `heartbeat=0` event. The compute contract is now complete.
+- Compensation can be tied to these heartbeat events.
 
 ## Notes
 
