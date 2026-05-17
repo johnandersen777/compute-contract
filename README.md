@@ -450,6 +450,7 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
         "required": [
           "name",
           "description",
+          "content",
           "createdAt"
         ],
         "properties": {
@@ -460,6 +461,10 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
           "description": {
             "type": "string",
             "description": "Instructions for when and how to use this skill."
+          },
+          "content": {
+            "type": "string",
+            "description": "The skill itself."
           },
           "examples": {
             "type": "array",
