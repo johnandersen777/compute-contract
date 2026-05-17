@@ -9,8 +9,12 @@
 - Eve wants to know what Alice is doing
 - Alice has vouched for Bob
 - Alice has denounced Eve
-- Alice creates a CCRFP manifest
-- Alice makes her CCRFP manifest available to the network
+- Alice creates a CCRFP manifest (the VM-specific payload — cpus, mem, disk,
+  cloud-init `user_data`, ...)
+- Alice wraps her CCRFP in a top-level RFP record (`domain: "compute"`,
+  `payload` is a strongRef to the CCRFP). The RFP is the domain-tagged envelope
+  bidders and indexers route on; the CCRFP is the inner VM-specific record.
+- Alice makes her RFP/CCRFP pair available to the network
 - Bob and Eve each issue a Compute Contract Bid (CCB) against the CCRFP
 - Alice's policy engine sees that she's denounced Eve and vouched for Bob
 - Alice issues a Compute Contract Bid Accept (CCBA) against Bob's CCB.
@@ -19,6 +23,9 @@
 - Bob issues a Compute Contract Receipt (CCR) over the CCRFP, CCB, and CCBA
   - The CCR references the CCRFP, the CCB, and the CCBA.
 - Bob builds to the CCRFP manifest's spec
+
+All cross-record references use `com.atproto.repo.strongRef`
+(`{$type, uri, cid}`), so the chain is content-addressed end-to-end.
 
 ## TODO
 
@@ -51,11 +58,18 @@ and evolved additively. Genuinely incompatible breaks bump the short name
 
 | Short name | Full NSID                                  |
 | ---------- | ------------------------------------------ |
+| RFP        | `com.publicdomainrelay.temp.rfp`           |
 | CCRFP      | `com.publicdomainrelay.temp.ccrfp`         |
 | CCB        | `com.publicdomainrelay.temp.ccb`           |
 | CCBAP      | `com.publicdomainrelay.temp.ccbap`         |
 | CCBA       | `com.publicdomainrelay.temp.ccba`          |
 | CCR        | `com.publicdomainrelay.temp.ccr`           |
+
+All cross-record references use the atproto strongRef shape (an explicit
+`$type: "com.atproto.repo.strongRef"` alongside `uri` and `cid`), so the chain
+is content-addressed end-to-end. The top-level `rfp` is a domain-tagged
+envelope whose `payload` strongRefs the domain-specific record (for
+`domain: "compute"` that is a `ccrfp` describing the requested VM).
 
 ## Data Formats
 
@@ -227,8 +241,22 @@ user_data: |
       systemctl enable --now "fedproxy@${SERVICE}.${HANDLE}.service"
 ```
 
+- Alice wraps her CCRFP in a top-level RFP envelope. The outer record carries
+  the marketplace `domain` and strongRefs the VM-specific CCRFP. Indexers and
+  policy engines route on `domain` without parsing the inner payload:
+
+```yaml
+---
+$type: "com.publicdomainrelay.temp.rfp"
+domain: "compute"
+payload:
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+```
+
 - Alice watches for bids
-  - **TODO** Filter by `embed.record.cid && uri` using jq
+  - **TODO** Filter by `embed.cid && uri` using jq
 
 ```bash
 timeout 15s uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identity_oauth_reverse_proxy/firehose_to_ndjson.py | jq 'select(.collection | startswith("com.publicdomainrelay.temp.ccb"))'
@@ -240,8 +268,9 @@ timeout 15s uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identit
 ---
 $type: "com.publicdomainrelay.temp.ccb"
 embed:
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
 bid:
   cost: 4
   currency: USDC
@@ -304,8 +333,9 @@ SOL     0.00
 ---
 $type: "com.publicdomainrelay.temp.ccbap"
 embed:
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
 txid: "0xabcdef0123456789..."
 ```
 
@@ -317,14 +347,17 @@ txid: "0xabcdef0123456789..."
 ---
 $type: "com.publicdomainrelay.temp.ccba"
 embed:
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
 bid:
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
 payment:
-  cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccbap/3kjsdf98sdf89"
+  cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
 ```
 
 - Bob CCR (Compute Contract Receipt) at createRecord response returned from
@@ -334,14 +367,17 @@ payment:
 ---
 $type: "com.publicdomainrelay.temp.ccr"
 rfp:
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
 bid:
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
 ccba:
-  cid: "bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4"
+  $type: "com.atproto.repo.strongRef"
   uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3mlagijgoeb23"
+  cid: "bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4"
 compute:
   # The IPv4 address of the provisioned compute
   ipv4: '1.1.1.1'
@@ -416,152 +452,169 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
 }
 ```
 
-The `cc`-prefixed records carry compute-specific data for the marketplace exchange. The generic marketplace envelopes below — `rfp`, `bid`, `bid.accept`, `receipt` — wrap that compute-specific payload via strongRefs (`{uri, cid}`), so the same outer protocol can be reused for non-compute marketplaces by swapping the inner `cc*` record for some other domain-specific record type.
+The `cc`-prefixed records carry compute-specific data. The top-level `rfp`
+envelope (`com.publicdomainrelay.temp.rfp`) is generic: it carries a `domain`
+tag and strongRefs the domain-specific payload (the `ccrfp` for VM compute).
+The `bid` / `bid.accept` / `receipt` outer envelopes follow the same shape and
+are still TODO — they will let the same outer protocol be reused for
+non-compute marketplaces by swapping the inner `cc*` record for some other
+domain-specific record type.
 
-Layering:
+Layering (implemented = solid, TODO = dashed):
 
 ```
-com.publicdomainrelay.rfp          ──strongRef──▶ com.publicdomainrelay.ccrfp
-com.publicdomainrelay.bid          ──strongRef──▶ com.publicdomainrelay.ccb
-       └── rfp ──strongRef──▶ com.publicdomainrelay.rfp
-com.publicdomainrelay.bid.accept   ──strongRef──▶ com.publicdomainrelay.bid
-       └── rfp ──strongRef──▶ com.publicdomainrelay.rfp
-com.publicdomainrelay.receipt      ──strongRef──▶ com.publicdomainrelay.ccr
-       ├── rfp        ──strongRef──▶ com.publicdomainrelay.rfp
-       ├── bid        ──strongRef──▶ com.publicdomainrelay.bid
-       └── bid.accept ──strongRef──▶ com.publicdomainrelay.bid.accept
+com.publicdomainrelay.temp.rfp     ──strongRef──▶ com.publicdomainrelay.temp.ccrfp     (implemented)
+com.publicdomainrelay.bid          ╌strongRef╌▶ com.publicdomainrelay.temp.ccb        (TODO)
+       └── rfp ╌strongRef╌▶ com.publicdomainrelay.temp.rfp
+com.publicdomainrelay.bid.accept   ╌strongRef╌▶ com.publicdomainrelay.bid             (TODO)
+       └── rfp ╌strongRef╌▶ com.publicdomainrelay.temp.rfp
+com.publicdomainrelay.receipt      ╌strongRef╌▶ com.publicdomainrelay.temp.ccr        (TODO)
+       ├── rfp        ╌strongRef╌▶ com.publicdomainrelay.temp.rfp
+       ├── bid        ╌strongRef╌▶ com.publicdomainrelay.bid
+       └── bid.accept ╌strongRef╌▶ com.publicdomainrelay.bid.accept
 ```
 
-### Alice RFP (wraps CCRFP)
+Every cross-record link uses the atproto strongRef shape — an object with
+`$type: "com.atproto.repo.strongRef"`, `uri`, and `cid`:
+
+### Alice RFP (wraps CCRFP) — implemented
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.rfp.v.0.0.0"
+$type: "com.publicdomainrelay.temp.rfp"
 domain: "compute"
 payload:
-  $type: "com.publicdomainrelay.ccrfp.simple.machine.manifest.v.0.0.0"
-  record:
-    cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.ccrfp/3m21312k9jnkl"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
+  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
 ```
 
-### Bob Bid (wraps CCB, refs RFP)
+### Bob Bid (wraps CCB, refs RFP) — TODO
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.bid.v.0.0.0"
+$type: "com.publicdomainrelay.bid"
+domain: "compute"
 rfp:
-  $type: "com.publicdomainrelay.rfp.v.0.0.0"
-  record:
-    cid: "rfpcid000000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.rfp/3m21312k9jnkl"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.rfp/3m21312k9jnkl"
+  cid: "rfpcid000000000000000000000000000000000000000000000000000000"
 payload:
-  $type: "com.publicdomainrelay.ccb.simple.v.0.0.0"
-  record:
-    cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.ccb/js9df8jo2j32l"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
+  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
 ```
 
-### Alice Bid Accept (refs Bid + RFP)
+### Alice Bid Accept (refs Bid + RFP) — TODO
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.bid.accept.v.0.0.0"
+$type: "com.publicdomainrelay.bid.accept"
 rfp:
-  $type: "com.publicdomainrelay.rfp.v.0.0.0"
-  record:
-    cid: "rfpcid000000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.rfp/3m21312k9jnkl"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.rfp/3m21312k9jnkl"
+  cid: "rfpcid000000000000000000000000000000000000000000000000000000"
 bid:
-  $type: "com.publicdomainrelay.bid.v.0.0.0"
-  record:
-    cid: "bidcid000000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.bid/3kjsdf98sdf89"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.bid/3kjsdf98sdf89"
+  cid: "bidcid000000000000000000000000000000000000000000000000000000"
 # Optional inline reference to the compute-specific accept payload, if present.
 # When omitted, accept defers fully to the referenced bid's compute-specific terms.
 payload:
-  $type: "com.publicdomainrelay.ccbap.simple.v.0.0.0"
-  record:
-    cid: "ccbapcid0000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.ccbap/3lkjasdf32j"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3lkjasdf32j"
+  cid: "ccbacid0000000000000000000000000000000000000000000000000000"
 ```
 
-### Bob Receipt (refs RFP + Bid + Bid Accept, wraps CCR)
+### Bob Receipt (refs RFP + Bid + Bid Accept, wraps CCR) — TODO
 
 ```yaml
 ---
-$type: "com.publicdomainrelay.receipt.v.0.0.0"
+$type: "com.publicdomainrelay.receipt"
 rfp:
-  $type: "com.publicdomainrelay.rfp.v.0.0.0"
-  record:
-    cid: "rfpcid000000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.rfp/3m21312k9jnkl"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.rfp/3m21312k9jnkl"
+  cid: "rfpcid000000000000000000000000000000000000000000000000000000"
 bid:
-  $type: "com.publicdomainrelay.bid.v.0.0.0"
-  record:
-    cid: "bidcid000000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.bid/js9df8jo2j32l"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.bid/js9df8jo2j32l"
+  cid: "bidcid000000000000000000000000000000000000000000000000000000"
 bid.accept:
-  $type: "com.publicdomainrelay.bid.accept.v.0.0.0"
-  record:
-    cid: "bacid0000000000000000000000000000000000000000000000000000000"
-    uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.bid.accept/3lkjasdf32j"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.bid.accept/3lkjasdf32j"
+  cid: "bacid0000000000000000000000000000000000000000000000000000000"
 payload:
-  $type: "com.publicdomainrelay.ccr.simple.v.0.0.0"
-  record:
-    cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
-    uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.ccr/3kjsdf98sdf89"
+  $type: "com.atproto.repo.strongRef"
+  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccr/3kjsdf98sdf89"
+  cid: "ccrcid0000000000000000000000000000000000000000000000000000000"
 ```
 
 ### Notes on the abstraction
 
 - `domain` (e.g. `"compute"`) on the outer `rfp` lets policy engines and indexers route to the right marketplace verticals without parsing inner payloads.
-- Every cross-record link is a strongRef (`{uri, cid}`) so the chain is content-addressed end-to-end: tampering with any inner record invalidates the receipt.
+- Every cross-record link is a `com.atproto.repo.strongRef` so the chain is content-addressed end-to-end: tampering with any inner record invalidates the receipt.
 - The compute-specific quantities (cpus / mem / disk / network / location / `user_data`, cost / currency / x402 base_url, the provisioned ipv4) stay where they are today inside the `cc*` records — the outer envelopes only carry references and routing metadata.
 - Non-compute marketplaces (e.g. storage, model inference, bandwidth) reuse `rfp` / `bid` / `bid.accept` / `receipt` unchanged and define their own `xx*`-prefixed payload lexicons.
 
 ## Examples
 
-The full flow: create the CCRFP, then the CCB referencing the CCRFP, then the
-CCBAP (payment receipt) referencing the CCB, then the CCBA tying CCRFP/CCB/CCBAP
-together, and finally hand the CCBA AT URI/CID to the provider's `/ccr`
-endpoint.
+The full flow: Alice creates the VM-specific CCRFP, then wraps it in a
+top-level RFP envelope (so policy engines / indexers can route on
+`domain: "compute"`), then Bob creates the CCB referencing the CCRFP, then the
+CCBAP (payment receipt) referencing the CCB, then the CCBA tying
+CCRFP/CCB/CCBAP together, and finally hand the CCBA AT URI/CID to the
+provider's `/ccr` endpoint.
+
+Every cross-record reference is a `com.atproto.repo.strongRef`
+(`{$type, uri, cid}`).
 
 ```bash
-# 1. Alice creates the CCRFP
+# 1. Alice creates the VM-specific CCRFP
 file="examples/data/spin-droplet-0001/0001-ccrfp/request.json"
 goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
   | tee "$(dirname "${file}")/response.json" | jq
 
-# 2. Bob creates the CCB referencing Alice's CCRFP
+# 2. Alice creates the top-level RFP envelope strongRef'ing her CCRFP
 IN="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
-OUT_OLD="$(cat examples/data/spin-droplet-0001/0002-ccb/request.json | jq -c)"
+OUT_OLD="$(cat examples/data/spin-droplet-0001/0002-rfp/request.json | jq -c)"
 echo "${OUT_OLD}" \
   | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
        --arg cid "$(echo "${IN}" | jq -r '.cid')" \
-       '.record.embed.record.uri = $uri | .record.embed.record.cid = $cid' \
-  | tee examples/data/spin-droplet-0001/0002-ccb/request.json
-file="examples/data/spin-droplet-0001/0002-ccb/request.json"
+       '.record.payload.uri = $uri | .record.payload.cid = $cid' \
+  | tee examples/data/spin-droplet-0001/0002-rfp/request.json
+file="examples/data/spin-droplet-0001/0002-rfp/request.json"
 goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
   | tee "$(dirname "${file}")/response.json" | jq
 
-# 3. Alice pays Bob via x402 (recorded as CCBAP referencing the CCB)
-IN="$(cat examples/data/spin-droplet-0001/0002-ccb/response.json | jq -c)"
-OUT_OLD="$(cat examples/data/spin-droplet-0001/0003-ccbap/request.json | jq -c)"
+# 3. Bob creates the CCB referencing Alice's CCRFP
+IN="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
+OUT_OLD="$(cat examples/data/spin-droplet-0001/0003-ccb/request.json | jq -c)"
 echo "${OUT_OLD}" \
   | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
        --arg cid "$(echo "${IN}" | jq -r '.cid')" \
-       '.record.embed.record.uri = $uri | .record.embed.record.cid = $cid' \
-  | tee examples/data/spin-droplet-0001/0003-ccbap/request.json
-file="examples/data/spin-droplet-0001/0003-ccbap/request.json"
+       '.record.embed.uri = $uri | .record.embed.cid = $cid' \
+  | tee examples/data/spin-droplet-0001/0003-ccb/request.json
+file="examples/data/spin-droplet-0001/0003-ccb/request.json"
 goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
   | tee "$(dirname "${file}")/response.json" | jq
 
-# 4. Alice creates the CCBA referencing CCRFP, CCB, and CCBAP
+# 4. Alice pays Bob via x402 (recorded as CCBAP referencing the CCB)
+IN="$(cat examples/data/spin-droplet-0001/0003-ccb/response.json | jq -c)"
+OUT_OLD="$(cat examples/data/spin-droplet-0001/0004-ccbap/request.json | jq -c)"
+echo "${OUT_OLD}" \
+  | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
+       --arg cid "$(echo "${IN}" | jq -r '.cid')" \
+       '.record.embed.uri = $uri | .record.embed.cid = $cid' \
+  | tee examples/data/spin-droplet-0001/0004-ccbap/request.json
+file="examples/data/spin-droplet-0001/0004-ccbap/request.json"
+goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
+  | tee "$(dirname "${file}")/response.json" | jq
+
+# 5. Alice creates the CCBA referencing CCRFP, CCB, and CCBAP
 CCRFP="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
-CCB="$(cat examples/data/spin-droplet-0001/0002-ccb/response.json | jq -c)"
-CCBAP="$(cat examples/data/spin-droplet-0001/0003-ccbap/response.json | jq -c)"
-cat examples/data/spin-droplet-0001/0004-ccba/request.json \
+CCB="$(cat examples/data/spin-droplet-0001/0003-ccb/response.json | jq -c)"
+CCBAP="$(cat examples/data/spin-droplet-0001/0004-ccbap/response.json | jq -c)"
+cat examples/data/spin-droplet-0001/0005-ccba/request.json \
   | jq \
       --arg ccrfp_uri "$(echo "${CCRFP}" | jq -r '.uri')" \
       --arg ccrfp_cid "$(echo "${CCRFP}" | jq -r '.cid')" \
@@ -569,19 +622,19 @@ cat examples/data/spin-droplet-0001/0004-ccba/request.json \
       --arg ccb_cid "$(echo "${CCB}" | jq -r '.cid')" \
       --arg ccbap_uri "$(echo "${CCBAP}" | jq -r '.uri')" \
       --arg ccbap_cid "$(echo "${CCBAP}" | jq -r '.cid')" \
-      '.record.embed.record.uri = $ccrfp_uri
-       | .record.embed.record.cid = $ccrfp_cid
-       | .record.bid.record.uri = $ccb_uri
-       | .record.bid.record.cid = $ccb_cid
-       | .record.payment.embed.record.uri = $ccbap_uri
-       | .record.payment.embed.record.cid = $ccbap_cid' \
-  | tee examples/data/spin-droplet-0001/0004-ccba/request.json
-file="examples/data/spin-droplet-0001/0004-ccba/request.json"
+      '.record.embed.uri = $ccrfp_uri
+       | .record.embed.cid = $ccrfp_cid
+       | .record.bid.uri = $ccb_uri
+       | .record.bid.cid = $ccb_cid
+       | .record.payment.uri = $ccbap_uri
+       | .record.payment.cid = $ccbap_cid' \
+  | tee examples/data/spin-droplet-0001/0005-ccba/request.json
+file="examples/data/spin-droplet-0001/0005-ccba/request.json"
 goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
   | tee "$(dirname "${file}")/response.json" | jq
 
-# 5. Hand the CCBA AT URI/CID to the provider's /ccr endpoint to spin compute
-curl "https://compute-contract.johnandersen777.bsky.social.fedproxy.com/ccr/$(cat examples/data/spin-droplet-0001/0004-ccba/response.json | jq -r .uri)/$(cat examples/data/spin-droplet-0001/0004-ccba/response.json | jq -r .cid)" | jq
+# 6. Hand the CCBA AT URI/CID to the provider's /ccr endpoint to spin compute
+curl "https://compute-contract.johnandersen777.bsky.social.fedproxy.com/ccr/$(cat examples/data/spin-droplet-0001/0005-ccba/response.json | jq -r .uri)/$(cat examples/data/spin-droplet-0001/0005-ccba/response.json | jq -r .cid)" | jq
 ```
 
 Read CCRFPs from the firehose
@@ -633,19 +686,21 @@ goat get $(goat xrpc procedure @pds com.atproto.repo.createRecord - < request.js
 
 ## Testing
 
+The loop iterates alphabetically, so directories run in order:
+`0001-ccrfp` → `0002-rfp` → `0003-ccb` → `0004-ccbap` → `0005-ccba`.
+
 ```bash
 $ (set -x; for dir in $(ls examples/data/spin-droplet-0001/); do file="examples/data/spin-droplet-0001/${dir}/request.json"; goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" | tee "$(dirname "${file}")/response.json" | yq -P; done)
-++ find examples/data/spin-droplet-0001/ -type f -name request.json
-+ for file in $(find examples/data/spin-droplet-0001/ -type f -name request.json)
-+ goat xrpc procedure @pds com.atproto.repo.createRecord -
-+ yq -P
-++ dirname examples/data/spin-droplet-0001/0001-ccrfp/request.json
 + tee examples/data/spin-droplet-0001/0001-ccrfp/response.json
 uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlabxf5xxg2t
 cid: bafyreiblivinfkc2hqhoe367b5ggdlieyviyun652g7qxn2p2rl4orfpsq
 commit:
   cid: bafyreibszjqfmvk6nbrdofqjkwvrvcdscphoidun6yxrtm55quhaylj62a
   rev: 3mlabxf65sw2t
+validationStatus: unknown
++ tee examples/data/spin-droplet-0001/0002-rfp/response.json
+uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.rfp/3mlabxf5xxg2u
+cid: bafyreidexamplecidforthetoprfprecord000000000000000000000000
 validationStatus: unknown
 ```
 

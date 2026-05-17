@@ -4,14 +4,17 @@
   "record": {
     "$type": "com.publicdomainrelay.temp.ccba",
     "embed": {
+      "$type": "com.atproto.repo.strongRef",
       "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlabxf5xxg2t",
       "cid": "bafyreiblivinfkc2hqhoe367b5ggdlieyviyun652g7qxn2p2rl4orfpsq"
     },
     "bid": {
+      "$type": "com.atproto.repo.strongRef",
       "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccb/3mlafsnk2i52c",
       "cid": "bafyreibh2wsioan6asp62mh4bzblt7m3z2kndvko3rjo3zgw5irsvl3noe"
     },
     "payment": {
+      "$type": "com.atproto.repo.strongRef",
       "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccbap/3mlag6phdgn2r",
       "cid": "bafyreidnqgayuw6rnl6g4tn3saptwbrcfnhftfjs4dgcdvzojatugulvv4"
     }

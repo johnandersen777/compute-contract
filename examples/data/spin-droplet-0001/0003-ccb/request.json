@@ -4,6 +4,7 @@
   "record": {
     "$type": "com.publicdomainrelay.temp.ccb",
     "embed": {
+      "$type": "com.atproto.repo.strongRef",
       "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlf7tjlfjr2d",
       "cid": "bafyreiccaougmp3654xsmrwjpihbsjyxzbcyvvnwhry2cci5fh2ubjtf74"
     },

@@ -1,0 +1,13 @@
+{
+  "repo": "did:plc:5svqtrhheairglgiiyvutzik",
+  "collection": "com.publicdomainrelay.temp.rfp",
+  "record": {
+    "$type": "com.publicdomainrelay.temp.rfp",
+    "domain": "compute",
+    "payload": {
+      "$type": "com.atproto.repo.strongRef",
+      "uri": "at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlabxf5xxg2t",
+      "cid": "bafyreiblivinfkc2hqhoe367b5ggdlieyviyun652g7qxn2p2rl4orfpsq"
+    }
+  }
+}
