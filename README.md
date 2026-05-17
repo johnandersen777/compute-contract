@@ -507,6 +507,54 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
 ```
 ---
 
+## com.publicdomainrelay.temp.compute.config.wif.simple
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.compute.config.wif.simple",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Simple Workload Identity Federation parameters used by the requester to obtain a token authorized for the provider.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "issuer_uri",
+          "to_issue",
+          "token_path",
+          "url_path",
+          "url_route",
+          "subject"
+        ],
+        "properties": {
+          "issuer_uri": {
+            "type": "string"
+          },
+          "to_issue": {
+            "type": "string"
+          },
+          "token_path": {
+            "type": "string"
+          },
+          "url_path": {
+            "type": "string"
+          },
+          "url_route": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
+```
+---
+
 ## com.publicdomainrelay.temp.compute.vm
 
 ```json
@@ -643,6 +691,11 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
             "description": "Strong reference to the rfp record (for example a com.publicdomainrelay.temp.market.rfp)."
+          },
+          "config": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to any config information that needs to be processed by rfp actor prior to bid accept (for example a com.publicdomainrelay.temp.compute.config.wif.simple)."
           },
           "payload": {
             "type": "ref",

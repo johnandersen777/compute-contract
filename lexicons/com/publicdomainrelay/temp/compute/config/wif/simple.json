@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.compute.config.wif.simple",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Simple Workload Identity Federation parameters used by the requester to obtain a token authorized for the provider.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "issuer_uri",
+          "to_issue",
+          "token_path",
+          "url_path",
+          "url_route",
+          "subject"
+        ],
+        "properties": {
+          "issuer_uri": {
+            "type": "string"
+          },
+          "to_issue": {
+            "type": "string"
+          },
+          "token_path": {
+            "type": "string"
+          },
+          "url_path": {
+            "type": "string"
+          },
+          "url_route": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

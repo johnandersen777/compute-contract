@@ -18,6 +18,11 @@
             "ref": "com.atproto.repo.strongRef",
             "description": "Strong reference to the rfp record (for example a com.publicdomainrelay.temp.market.rfp)."
           },
+          "config": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to any config information that needs to be processed by rfp actor prior to bid accept (for example a com.publicdomainrelay.temp.compute.config.wif.simple)."
+          },
           "payload": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
