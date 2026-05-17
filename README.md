@@ -521,6 +521,7 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
       "record": {
         "type": "object",
         "required": [
+          "accept_path",
           "issuer_uri",
           "to_issue",
           "token_path",
@@ -529,23 +530,33 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
           "subject"
         ],
         "properties": {
+          "accept_path": {
+            "type": "string",
+            "description": "Path on disk to the "
+          },
           "issuer_uri": {
-            "type": "string"
+            "type": "string",
+            "description": "OIDC issuer URI, rfp actor configures their RBAC to trust this"
           },
           "to_issue": {
-            "type": "string"
+            "type": "string",
+            "description": "The role of the token you will be issued within this compute providers RBAC, this role will allow for token exchange. You don't care about it unless you might be allowed to do other things. Inspect their RBAC policy if you care."
           },
           "token_path": {
-            "type": "string"
+            "type": "string",
+            "description": "Workload identity token which can be used with token issuance service for requesting subsequent tokens to talk to other services."
           },
           "url_path": {
-            "type": "string"
+            "type": "string",
+            "description": "Path on disk to file containing URL of token issuance service for requesting subsequent tokens from."
           },
           "url_route": {
-            "type": "string"
+            "type": "string",
+            "description": "The route against $(cat url_path) you can request new tokens from."
           },
           "subject": {
-            "type": "string"
+            "type": "string",
+            "description": "The subject of tokens you request MUST follow this format."
           }
         }
       }
