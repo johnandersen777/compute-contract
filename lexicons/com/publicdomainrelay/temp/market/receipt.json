@@ -11,8 +11,7 @@
         "required": [
           "rfp",
           "bid",
-          "accept",
-          "payload"
+          "accept"
         ],
         "properties": {
           "rfp": {
@@ -23,17 +22,17 @@
           "bid": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.bid.x402)."
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
           },
           "accept": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the accept record (for example a com.publicdomainrelay.temp.accept.x402)."
+            "description": "Strong reference to the accept record (for example a com.publicdomainrelay.temp.market.accept.x402)."
           },
           "payload": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the receipt record (for example a com.publicdomainrelay.temp.receipt.x402)."
+            "description": "Strong reference to the receipt record if there is anything to note about the receipt (for example a com.publicdomainrelay.temp.market.receipt.x402)."
           }
         }
       }

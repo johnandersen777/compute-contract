@@ -46,31 +46,6 @@ All cross-record references use `com.atproto.repo.strongRef`
 
 - https://github.com/publicdomainrelay/compute-contract-provider-relay-digitalocean
 
-## Versioning
-
-Schemas are pre-stable and use the `temp` infix:
-`com.publicdomainrelay.temp.<name>`. Lexicons for all of the record types
-live under [`lexicons/`](./lexicons).
-
-When a schema stabilizes it is promoted to `com.publicdomainrelay.<name>`
-and evolved additively. Genuinely incompatible breaks bump the short name
-(`<name>V2`, `<name>V3`, ...).
-
-| Short name | Full NSID                                  |
-| ---------- | ------------------------------------------ |
-| RFP        | `com.publicdomainrelay.temp.rfp`           |
-| CCRFP      | `com.publicdomainrelay.temp.ccrfp`         |
-| CCB        | `com.publicdomainrelay.temp.ccb`           |
-| CCBAP      | `com.publicdomainrelay.temp.ccbap`         |
-| CCBA       | `com.publicdomainrelay.temp.ccba`          |
-| CCR        | `com.publicdomainrelay.temp.ccr`           |
-
-All cross-record references use the atproto strongRef shape (an explicit
-`$type: "com.atproto.repo.strongRef"` alongside `uri` and `cid`), so the chain
-is content-addressed end-to-end. The top-level `rfp` is a domain-tagged
-envelope whose `payload` strongRefs the domain-specific record (for
-`domain: "compute"` that is a `ccrfp` describing the requested VM).
-
 ## Data Formats
 
 - Alice CCRFP manifest
@@ -452,109 +427,361 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
 }
 ```
 
-The `cc`-prefixed records carry compute-specific data. The top-level `rfp`
-envelope (`com.publicdomainrelay.temp.rfp`) is generic: it carries a `domain`
-tag and strongRefs the domain-specific payload (the `ccrfp` for VM compute).
-The `bid` / `bid.accept` / `receipt` outer envelopes follow the same shape and
-are still TODO — they will let the same outer protocol be reused for
-non-compute marketplaces by swapping the inner `cc*` record for some other
-domain-specific record type.
+## Reference
 
-Layering (implemented = solid, TODO = dashed):
-
-```
-com.publicdomainrelay.temp.rfp     ──strongRef──▶ com.publicdomainrelay.temp.ccrfp     (implemented)
-com.publicdomainrelay.bid          ╌strongRef╌▶ com.publicdomainrelay.temp.ccb        (TODO)
-       └── rfp ╌strongRef╌▶ com.publicdomainrelay.temp.rfp
-com.publicdomainrelay.bid.accept   ╌strongRef╌▶ com.publicdomainrelay.bid             (TODO)
-       └── rfp ╌strongRef╌▶ com.publicdomainrelay.temp.rfp
-com.publicdomainrelay.receipt      ╌strongRef╌▶ com.publicdomainrelay.temp.ccr        (TODO)
-       ├── rfp        ╌strongRef╌▶ com.publicdomainrelay.temp.rfp
-       ├── bid        ╌strongRef╌▶ com.publicdomainrelay.bid
-       └── bid.accept ╌strongRef╌▶ com.publicdomainrelay.bid.accept
-```
-
-Every cross-record link uses the atproto strongRef shape — an object with
-`$type: "com.atproto.repo.strongRef"`, `uri`, and `cid`:
-
-### Alice RFP (wraps CCRFP) — implemented
-
-```yaml
+<!-- dx @atproto/lex-cli gen-md --yes README.md $(find lexicons/ -name '*.json') -->
+<!-- START lex generated content. Please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION! INSTEAD RE-RUN lex TO UPDATE -->
 ---
-$type: "com.publicdomainrelay.temp.rfp"
-domain: "compute"
-payload:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
+
+## com.publicdomainrelay.temp.agent.skill
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.agent.skill",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "An agent skill record that describes a capability the agent can perform, with examples and property references.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "createdAt"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Human-readable name of the skill."
+          },
+          "description": {
+            "type": "string",
+            "description": "Instructions for when and how to use this skill."
+          },
+          "examples": {
+            "type": "array",
+            "description": "Strong references to example records demonstrating this skill.",
+            "items": {
+              "type": "ref",
+              "ref": "com.atproto.repo.strongRef"
+            }
+          },
+          "property_references": {
+            "type": "array",
+            "description": "Annotated path-value pairs describing fields within the example records. Each entry either carries a literal string value or a strongRef that resolves (recursively) to the value at that path.",
+            "items": {
+              "type": "ref",
+              "ref": "#propertyReference"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO 8601 timestamp when this skill record was created."
+          }
+        }
+      }
+    },
+    "propertyReference": {
+      "type": "object",
+      "description": "A single path-annotated value reference within a skill's example records. Carries either a literal string or a strongRef pointing to the value.",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "JSONPath-like dotted path into the resolved example tree, e.g. '.examples[].value.payload.value.user_data'."
+        },
+        "ref": {
+          "type": "ref",
+          "ref": "com.atproto.repo.strongRef",
+          "description": "Strong reference to a record that contains the example data."
+        }
+      }
+    }
+  }
+}
 ```
-
-### Bob Bid (wraps CCB, refs RFP) — TODO
-
-```yaml
 ---
-$type: "com.publicdomainrelay.bid"
-domain: "compute"
-rfp:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.rfp/3m21312k9jnkl"
-  cid: "rfpcid000000000000000000000000000000000000000000000000000000"
-payload:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
+
+## com.publicdomainrelay.temp.compute.vm
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.compute.vm",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Descibes a virtual machine",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "cpus",
+          "mem",
+          "disk",
+          "network",
+          "role",
+          "user_data"
+        ],
+        "properties": {
+          "cpus": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of vCPUs requested."
+          },
+          "mem": {
+            "type": "string",
+            "description": "Memory request, e.g. '512M', '4G'."
+          },
+          "disk": {
+            "type": "string",
+            "description": "Disk request, e.g. '10G'."
+          },
+          "network": {
+            "type": "string",
+            "description": "Network throughput / quota, e.g. '500G'."
+          },
+          "location": {
+            "type": "ref",
+            "ref": "#location"
+          },
+          "role": {
+            "type": "string",
+            "description": "RBAC role the compute should run under. The requester's did:plc may set this freely, so agents must use their own accounts since we scope roles under accounts."
+          },
+          "user_data": {
+            "type": "string",
+            "description": "cloud-init user data to bootstrap the compute."
+          }
+        }
+      }
+    },
+    "location": {
+      "type": "object",
+      "description": "Geographic placement constraint for the requested compute.",
+      "properties": {
+        "country": {
+          "type": "string",
+          "description": "ISO 3166-1 alpha-3 country code or human-readable country name."
+        },
+        "region": {
+          "type": "string",
+          "description": "Region within the country, e.g. 'west'."
+        }
+      }
+    }
+  }
+}
 ```
-
-### Alice Bid Accept (refs Bid + RFP) — TODO
-
-```yaml
 ---
-$type: "com.publicdomainrelay.bid.accept"
-rfp:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.rfp/3m21312k9jnkl"
-  cid: "rfpcid000000000000000000000000000000000000000000000000000000"
-bid:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.bid/3kjsdf98sdf89"
-  cid: "bidcid000000000000000000000000000000000000000000000000000000"
-# Optional inline reference to the compute-specific accept payload, if present.
-# When omitted, accept defers fully to the referenced bid's compute-specific terms.
-payload:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3lkjasdf32j"
-  cid: "ccbacid0000000000000000000000000000000000000000000000000000"
+
+## com.publicdomainrelay.temp.market.accept
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.market.accept",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Acceptance of a bid on an RFP",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "rfp",
+          "bid"
+        ],
+        "properties": {
+          "rfp": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the rfp record (for example a com.publicdomainrelay.temp.market.rfp)."
+          },
+          "bid": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+          },
+          "payload": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the accept record if there is anything to note about the acceptance (for example a com.publicdomainrelay.temp.market.accept.x402)."
+          }
+        }
+      }
+    }
+  }
+}
 ```
-
-### Bob Receipt (refs RFP + Bid + Bid Accept, wraps CCR) — TODO
-
-```yaml
 ---
-$type: "com.publicdomainrelay.receipt"
-rfp:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.rfp/3m21312k9jnkl"
-  cid: "rfpcid000000000000000000000000000000000000000000000000000000"
-bid:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.bid/js9df8jo2j32l"
-  cid: "bidcid000000000000000000000000000000000000000000000000000000"
-bid.accept:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.bid.accept/3lkjasdf32j"
-  cid: "bacid0000000000000000000000000000000000000000000000000000000"
-payload:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccr/3kjsdf98sdf89"
-  cid: "ccrcid0000000000000000000000000000000000000000000000000000000"
+
+## com.publicdomainrelay.temp.market.bid
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.market.bid",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A bid on an RFP",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "rfp",
+          "payload"
+        ],
+        "properties": {
+          "rfp": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the rfp record (for example a com.publicdomainrelay.temp.market.rfp)."
+          },
+          "payload": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+          }
+        }
+      }
+    }
+  }
+}
 ```
+---
 
-### Notes on the abstraction
+## com.publicdomainrelay.temp.market.bid.x402
 
-- `domain` (e.g. `"compute"`) on the outer `rfp` lets policy engines and indexers route to the right marketplace verticals without parsing inner payloads.
-- Every cross-record link is a `com.atproto.repo.strongRef` so the chain is content-addressed end-to-end: tampering with any inner record invalidates the receipt.
-- The compute-specific quantities (cpus / mem / disk / network / location / `user_data`, cost / currency / x402 base_url, the provisioned ipv4) stay where they are today inside the `cc*` records — the outer envelopes only carry references and routing metadata.
-- Non-compute marketplaces (e.g. storage, model inference, bandwidth) reuse `rfp` / `bid` / `bid.accept` / `receipt` unchanged and define their own `xx*`-prefixed payload lexicons.
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.market.bid.x402",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Includes pricing/payment terms and x402 endpoint for issuing a receipt against an accept.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "cost",
+          "currency",
+          "frequency",
+          "prepay",
+          "url"
+        ],
+        "properties": {
+          "cost": {
+            "type": "unknown",
+            "description": "Numeric price (integer or float) per the chosen frequency."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency code, e.g. 'USDC'."
+          },
+          "frequency": {
+            "type": "string",
+            "description": "Billing frequency, e.g. 'monthly', 'hourly', 'one-time'."
+          },
+          "prepay": {
+            "type": "boolean",
+            "description": "Whether payment is required before compute starts."
+          },
+          "url": {
+            "type": "string",
+            "description": "x402 payment URL template (may contain {at} and {cid} placeholders for the com.publicdomainrelay.temp.market.accept AT URI/CID)."
+          }
+        }
+      }
+    }
+  }
+}
+```
+---
+
+## com.publicdomainrelay.temp.market.receipt
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.market.receipt",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Receipt for acceptance of a bid on an RFP",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "rfp",
+          "bid",
+          "accept"
+        ],
+        "properties": {
+          "rfp": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the rfp record (for example a com.publicdomainrelay.temp.market.rfp)."
+          },
+          "bid": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+          },
+          "accept": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the accept record (for example a com.publicdomainrelay.temp.market.accept.x402)."
+          },
+          "payload": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the receipt record if there is anything to note about the receipt (for example a com.publicdomainrelay.temp.market.receipt.x402)."
+          }
+        }
+      }
+    }
+  }
+}
+```
+---
+
+## com.publicdomainrelay.temp.market.rfp
+
+```json
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.market.rfp",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Top-level Request For Proposal (RFP). Envelope that strongRefs a domain-specific payload (e.g. compute.vm).",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "payload"
+        ],
+        "properties": {
+          "payload": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Strong reference to the domain-specific payload record (for example a com.publicdomainrelay.temp.compute.vm)."
+          }
+        }
+      }
+    }
+  }
+}
+```
+<!-- END lex generated TOC please keep comment here to allow auto update -->
 
 ## Examples
 
