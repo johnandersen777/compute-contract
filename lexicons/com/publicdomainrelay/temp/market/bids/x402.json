@@ -1,6 +1,6 @@
 {
   "lexicon": 1,
-  "id": "com.publicdomainrelay.temp.market.bid.x402",
+  "id": "com.publicdomainrelay.temp.market.bids.x402",
   "defs": {
     "main": {
       "type": "record",

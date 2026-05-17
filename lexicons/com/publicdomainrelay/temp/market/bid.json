@@ -21,7 +21,7 @@
           "payload": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bids.x402)."
           }
         }
       }

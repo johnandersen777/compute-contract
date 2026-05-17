@@ -647,7 +647,7 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
           "payload": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bids.x402)."
           }
         }
       }
@@ -657,12 +657,12 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
 ```
 ---
 
-## com.publicdomainrelay.temp.market.bid.x402
+## com.publicdomainrelay.temp.market.bids.x402
 
 ```json
 {
   "lexicon": 1,
-  "id": "com.publicdomainrelay.temp.market.bid.x402",
+  "id": "com.publicdomainrelay.temp.market.bids.x402",
   "defs": {
     "main": {
       "type": "record",
