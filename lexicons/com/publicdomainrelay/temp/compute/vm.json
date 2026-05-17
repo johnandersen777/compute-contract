@@ -1,10 +1,10 @@
 {
   "lexicon": 1,
-  "id": "com.publicdomainrelay.temp.ccrfp",
+  "id": "com.publicdomainrelay.temp.compute.vm",
   "defs": {
     "main": {
       "type": "record",
-      "description": "Compute Contract Request For Proposal (CCRFP). Issued by a requester (Alice) to describe the compute they want.",
+      "description": "Descibes a virtual machine",
       "key": "tid",
       "record": {
         "type": "object",
@@ -40,7 +40,7 @@
           },
           "role": {
             "type": "string",
-            "description": "RBAC role the compute should run under. The requester's did:plc may set this freely, so agents must use their own accounts."
+            "description": "RBAC role the compute should run under. The requester's did:plc may set this freely, so agents must use their own accounts since we scope roles under accounts."
           },
           "user_data": {
             "type": "string",
