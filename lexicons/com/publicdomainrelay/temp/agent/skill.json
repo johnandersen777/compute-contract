@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "An agent skill record that describes a capability the agent can perform, with examples and property references.",
+      "description": "An agent skill record that describes a capability the agent can perform, with examples, property references, and optionally TypeScript tools the agent can invoke.",
       "key": "tid",
       "record": {
         "type": "object",
@@ -36,6 +36,14 @@
             "items": {
               "type": "ref",
               "ref": "#propertyReference"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "description": "TypeScript tools the skill provides. Each entry is a strongRef to a com.publicdomainrelay.temp.agent.tool.typescript record (which carries the FULL embedded source, deno.json, and deno.lock). Decoupling from the agent.skill record means the same tool can be referenced from multiple skills, and a remote agent fetching this skill can resolve and execute the tool without filesystem access.",
+            "items": {
+              "type": "ref",
+              "ref": "com.atproto.repo.strongRef"
             }
           },
           "createdAt": {

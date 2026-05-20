@@ -32,6 +32,14 @@
             "type": "boolean",
             "description": "If true, agents of this class are intended to be spawned as sub-agents from a parent agent's flow rather than as a top-level runtime."
           },
+          "entryTool": {
+            "type": "string",
+            "description": "Optional name of the entry tool (a tool defined by one of this class's skills) the universal runner invokes directly when an agent of this class is spawned. Setting this puts the class in deterministic mode: the runner calls `import('./tools/<entryTool>/main.ts').default({input, bridge, config})` and forwards its return value as the agent's result. Classes without `entryTool` run in LLM-driven mode: the runner builds a tool registry from skill examples + tools and drives an LLM loop."
+          },
+          "bootstrap": {
+            "type": "string",
+            "description": "How the spawned agent obtains its ATProto identity. 'atproto-password' = log in with $ATPROTO_PASSWORD and $AGENT_DID from spec.env (top-level pattern). 'welcome-mat-on-enroll' = no creds initially; an entry tool calls Welcome Mat to enroll and the WelcomeMatClient lives in the spawned process (sub-agent pattern). 'none' = no ATProto session, pure compute."
+          },
           "createdAt": {
             "type": "string",
             "format": "datetime",

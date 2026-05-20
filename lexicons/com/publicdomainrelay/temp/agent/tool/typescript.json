@@ -1,0 +1,49 @@
+{
+  "lexicon": 1,
+  "id": "com.publicdomainrelay.temp.agent.tool.typescript",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A TypeScript tool the agent runtime can invoke. The record carries the FULL source: the tool's main.ts, its deno.json, and optionally its deno.lock. When an agent is spawned, the runtime materializes each tool referenced by the agent's skills into a fresh tempdir alongside the agent's main.ts so the spawned Deno process can either dynamically `import()` the tool (in-process) or invoke its CLI entry as a subprocess.\n\nA tool's main.ts SHOULD export a default async function with signature `(args: { input, bridge, config }) => Promise<unknown>` so the parent agent_template can invoke it in-process and share its SubprocessBridge for event bubbling.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "description", "inputSchema", "source", "createdAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tool identifier (also the directory name when materialized: tempdir/tools/<name>/main.ts). Must be a valid OpenAI tool name (alphanumeric+underscore)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Prose description of what the tool does."
+          },
+          "inputSchema": {
+            "type": "unknown",
+            "description": "JSON Schema (draft-07) for the tool's input arguments object."
+          },
+          "spawnsSubAgent": {
+            "type": "boolean",
+            "description": "If true, the tool spawns a nested sub-agent (a fresh Deno process with its own ATProto identity). The runtime sets up a unix-socket bridge so orchestrator events from the sub-agent bubble back into the parent's FlowContext."
+          },
+          "source": {
+            "type": "string",
+            "description": "Full main.ts source. Materialized verbatim to tempdir/tools/<name>/main.ts at spawn time."
+          },
+          "denoJson": {
+            "type": "string",
+            "description": "Full deno.json content for this tool's project root. If absent, the runtime uses a minimal default."
+          },
+          "denoLock": {
+            "type": "string",
+            "description": "Full deno.lock content (pinned dependency hashes). Recommended for reproducibility across spawn locations."
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "ISO 8601 timestamp."
+          }
+        }
+      }
+    }
+  }
+}
