@@ -2,30 +2,47 @@
 
 > https://john.leaflet.pub/3mletyxaie22o
 
-- Alice, Bob, and Eve are on the network
-- Alice wants to issue a Compute Contract Request For Proposal (CCRFP)
-  - Alice's CCRFP will state she wants an OpenCode instance
-- Bob has plenty of builder machines
-- Eve wants to know what Alice is doing
-- Alice has vouched for Bob
-- Alice has denounced Eve
-- Alice creates a CCRFP manifest (the VM-specific payload — cpus, mem, disk,
-  cloud-init `user_data`, ...)
-- Alice wraps her CCRFP in a top-level RFP record (`domain: "compute"`,
-  `payload` is a strongRef to the CCRFP). The RFP is the domain-tagged envelope
-  bidders and indexers route on; the CCRFP is the inner VM-specific record.
-- Alice makes her RFP/CCRFP pair available to the network
-- Bob and Eve each issue a Compute Contract Bid (CCB) against the CCRFP
-- Alice's policy engine sees that she's denounced Eve and vouched for Bob
-- Alice issues a Compute Contract Bid Accept (market.accept) against Bob's bid.
-- Alice issues a x402 payment to Bob per info provided in his bid.
-  - Using the accept AT URI and CID to the bid's stated x402 endpoint.
-- Bob issues a Compute Contract Receipt (market.receipt) over the RFP, bid, and accept
-  - The receipt references the RFP, the bid, and the accept.
-- Bob builds to the RFP manifest's spec
+- Alice wants compute. She creates a VM spec (cpus, mem, disk, cloud-init
+  `user_data`) and publishes it as a `compute.vm` record.
+- Alice wraps the VM record in a `market.rfp` envelope. The RFP is the
+  domain-tagged record bidders and indexers route on; the VM record is the
+  inner payload.
+- Alice has vouched for Bob (a trusted provider). She has denounced Eve.
+- Alice publishes the RFP to the network. Bidders discover it via relay
+  indices, firehose watches, or direct `submitRfp` XRPC calls.
+- Bob and Eve each create a `market.bid` referencing Alice's RFP, along
+  with settlement terms and WIF config. Both submit bids to Alice's
+  `submitBid` endpoint.
+- Alice's policy engine filters bids: Eve is denied (denounced DID),
+  Bob passes. Alice scores Bob's bid (lowest cost) and accepts it by
+  creating a `market.accept`.
+- Alice pays Bob via x402 (calling the URL in Bob's `bids.x402` record).
+- Bob resolves the chain, provisions the guest (container or VM) with the
+  cloud-init `user_data`, and publishes a `market.receipt`.
+- The receipt strongRefs RFP → Bid → Accept. Alice verifies it before
+  trusting the provisioned guest.
 
 All cross-record references use `com.atproto.repo.strongRef`
 (`{$type, uri, cid}`), so the chain is content-addressed end-to-end.
+
+## Concepts
+
+| Term | Definition |
+|------|------------|
+| **AT URI** | `at://` URI identifying a record: `at://<did>/<collection>/<rkey>`. The unique address of any record in the network. |
+| **CID** | Content IDentifier — a cryptographic hash of the record content. Paired with an AT URI, forms a content-addressed pointer (`strongRef`). |
+| **strongRef** | `{$type: "com.atproto.repo.strongRef", uri, cid}` — a tamper-proof pointer to a specific version of a record. Every cross-record link uses this. |
+| **DID** | Decentralized IDentifier. `did:plc:<key>` for most actors; `did:web:<domain>` for services reachable at a domain. |
+| **PLC** | `did:plc` — a DID method where the DID document is hosted at `plc.directory`. The most common DID method on AT Protocol. |
+| **NSID** | Namespaced Identifier — a reversed-domain string identifying a record type or XRPC method, e.g. `com.publicdomainrelay.temp.market.rfp`. |
+| **XRPC** | AT Protocol's HTTP-based RPC layer. Records are created via `com.atproto.repo.createRecord`; custom procedures (like `submitBid`) are service-proxied through PDS endpoints. |
+| **PDS** | Personal Data Server — each actor's AT Protocol server holding their repo (records) and handling auth. |
+| **Firehose** | `com.atproto.sync.subscribeRepos` / Jetstream — a public WebSocket stream of all repo commits. Used for real-time discovery of new records. |
+| **x402** | HTTP 402 Payment Required protocol. Used for settlement — the requester pays the bidder before/during provisioning. |
+| **OIDC** | OpenID Connect. Used for workload identity — the provisioned VM authenticates to the provider's token issuer. |
+| **WIF** | Workload Identity Federation — the bidder's config telling the requester how the VM will obtain scoped auth tokens. |
+| **RBAC** | Role-Based Access Control — the provider's policy controlling what provisioned VMs are authorized to do. |
+| **badge.blue** | An attestation protocol. Every requester-authored record carries a `network.attested.signature` — an inline signature by the author's attestation key, published in their DID document. |
 
 ## References
 
@@ -71,10 +88,18 @@ classDiagram
       +string user_data
       +Location location?
     }
+    class RFP {
+      +strongRef payload   // -> VM
+      +signatures          // badge.blue attestation (REQUIRED)
+      +string submitBid?   // DID service endpoint for bid submission
+      +strongRef policy?   // -> fulfillment policy
+    }
     class Bid {
-      +strongRef rfp      // -> RFP
-      +strongRef payload  // -> BidsX402
-      +strongRef config?  // -> WIFSimple
+      +strongRef rfp       // -> RFP
+      +strongRef payload   // -> BidsX402 or BidsFree
+      +strongRef config?   // -> WIFSimple
+      +signatures          // badge.blue attestation (REQUIRED)
+      +string submitAccept? // DID service endpoint for accept submission
     }
     class BidsX402 {
       +unknown cost
@@ -82,6 +107,7 @@ classDiagram
       +string frequency
       +bool prepay
       +string url
+      +signatures          // badge.blue attestation (REQUIRED)
     }
     class WIFSimple {
       +string accept_path
@@ -91,17 +117,23 @@ classDiagram
       +string url_path
       +string url_route
       +string subject
+      +string actx_path?
     }
     class Accept {
       +strongRef rfp      // -> RFP
       +strongRef bid      // -> Bid
-      +strongRef payload? // domain note
+      +strongRef payload? // -> payment receipt (accepts.x402/accepts.free)
+      +signatures         // badge.blue attestation (REQUIRED)
+      +string submitEvent? // DID service endpoint for lifecycle events
     }
     class Receipt {
       +strongRef rfp      // -> RFP
       +strongRef bid      // -> Bid
       +strongRef accept   // -> Accept
       +strongRef payload? // domain note
+      +string cid         // badge.blue attestation CID over accept (REQUIRED)
+      +signatures         // badge.blue attestation (REQUIRED)
+      +string submitEvent? // DID service endpoint for lifecycle events
     }
     RFP --> VM : payload
     Bid --> RFP : rfp
@@ -119,15 +151,18 @@ classDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> RFP_Open : Alice creates RFP + VM
-    RFP_Open --> Bidding : Firehose fan-out / hook fires
-    Bidding --> Bidding : Provider creates Bid
-    Bidding --> Scoring : Listen window elapses
-    Scoring --> Rejected : no bid passes policy
-    Scoring --> Accepted : Alice creates Accept
-    Accepted --> Settling : Bob serves the contract / collects payment
-    Settling --> Settled : Bob creates Receipt
+    RFP_Open --> Bidding : submitRfp XRPC sent to each discovered bidder
+    Bidding --> Bidding : Bidder creates Bid, submitBid XRPC to requester
+    Bidding --> Accepted : Bid window elapses, lowest-cost bid wins
+    Bidding --> RFP_Open : no bids received (timeout)
+    Accepted --> Provisioning : submitAccept XRPC to winning bidder
+    Provisioning --> Settled : bidder provisions guest, creates Receipt
+    Provisioning --> Rejected : provision fails
+    Settled --> Active : vm.started event
+    Active --> Active : heartbeat events
+    Active --> Terminated : vm.delete event
+    Terminated --> [*]
     Rejected --> [*]
-    Settled --> [*]
 ```
 
 ## Transport
@@ -147,34 +182,31 @@ sequenceDiagram
     autonumber
     participant A as Alice (requester)
     participant AP as Alice PDS
-    participant FH as Firehose
-    participant HK as Hook host (relay)
-    participant B as Bob (provider)
+    participant IDX as Relay index / Firehose
+    participant B as Bob (bidder)
     participant BP as Bob PDS
-    participant PR as Provider relay (/receipt)
-    participant X4 as x402 endpoint
     participant VM as Provisioned VM
 
     A->>AP: createRecord compute.vm
-    A->>AP: createRecord market.rfp { payload -> vm }
-    AP-->>FH: commit (market.rfp)
-    FH-->>HK: jetstream / firehose event
-    HK->>B: POST /hook/rfp (webhook envelope)
-    par bid window (N seconds)
-        B->>BP: createRecord bids.x402
-        B->>BP: createRecord config.wif.simple
-        B->>BP: createRecord market.bid { rfp, payload, config }
-        BP-->>FH: commit (market.bid)
-        FH-->>A: jetstream (bid for my rfp)
+    A->>AP: createSignedRecord market.rfp { payload -> vm, submitBid }
+    AP-->>IDX: commit (market.offering indexed, market.rfp discoverable)
+    A->>IDX: discover bidders (relay index + firehose + vouch graph)
+    loop each discovered bidder
+        A->>B: submitRfp XRPC (via PDS service proxy)
     end
-    A->>A: policy filter + scorer (lowest cost)
-    A->>AP: createRecord market.accept { rfp, bid }
-    A->>X4: GET / pay (url filled with accept uri+cid)
-    X4->>PR: POST /receipt/{accept.uri}/{accept.cid}
-    PR->>BP: resolve accept -> bid -> rfp -> vm + config
-    PR->>VM: provision (cloud-init writes accept.json, runs role)
-    PR->>BP: createRecord market.receipt { rfp, bid, accept }
-    BP-->>A: receipt strongRef
+    B->>BP: createRecord bids.free / bids.x402
+    B->>BP: createRecord config.wif.simple
+    B->>BP: createRecord market.bid { rfp, payload, config, submitAccept }
+    B->>A: submitBid XRPC (via PDS service proxy to requester's submitBid endpoint)
+    A->>A: policy filter + lowest-cost scorer
+    A->>AP: createSignedRecord market.accept { rfp, bid }
+    A->>B: x402 payment (call bids.x402.url with accept refs)
+    A->>B: submitAccept XRPC (to bidder's submitAccept endpoint)
+    B->>BP: resolve accept -> bid -> rfp -> vm + config
+    B->>VM: provision (cloud-init + OIDC enrichment + RBAC grant)
+    B->>BP: createRecord market.receipt { rfp, bid, accept }
+    B-->>A: receipt strongRef (via submitAccept response)
+    B->>A: submitEvent XRPC (vm.started, heartbeat, vm.delete)
 ```
 
 ## Step-by-step records
@@ -208,9 +240,22 @@ payload:
   $type: com.atproto.repo.strongRef
   uri: at://did:plc:alice/com.publicdomainrelay.temp.compute.vm/3mm3dolfolz2c
   cid: bafyreif4toqzci4nu3thujm2quurs4h432qk3gxvmkwze2wrrznn757omi
+submitBid: did:plc:alice#pdr_temp_market
+createdAt: "2026-05-07T03:26:47.000Z"
+signatures:
+  - $type: network.attested.signature
+    key: did:key:z...
+    issuer: did:plc:alice
+    signature:
+      $bytes: ...
 # uri: at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mm3doliee72s
 # cid: bafyreib5u2krsumyya5eiqc7ys7iz3xxlourd34p7qlpehi7a7h2kdc3ia
 ```
+
+`submitBid` is a DID document service endpoint — bidders POST bids there
+via XRPC service proxying. `signatures` carries the inline badge.blue
+attestation. An optional `policy` strongRef points to a fulfillment
+policy record (`only_me`, `direct_network`, or `policy_based`).
 
 ### 3. Firehose → webhook envelope (airglow shape)
 
@@ -284,23 +329,37 @@ config:
   $type: com.atproto.repo.strongRef
   uri: at://did:plc:bob/com.publicdomainrelay.temp.compute.config.wif.simple/3mm4...
   cid: bafyrei...wif
+submitAccept: did:plc:bob#pdr_temp_market
+signatures:
+  - $type: network.attested.signature
+    key: did:key:z...
+    issuer: did:plc:bob
+    signature:
+      $bytes: ...
 ```
+
+`submitAccept` is the bidder's endpoint — the requester POSTs the accept
+there. `signatures` is the badge.blue attestation (present on every
+market record, requester and bidder alike).
 
 ### 7. Alice runs policy + scoring during the bid window
 
 ```mermaid
 flowchart LR
-    A[bids collected<br/>from jetstream] --> P{policy<br/>allow/deny by DID}
-    P -->|drop| X1[(log reason)]
-    P --> R[resolve bid.payload]
+    A[bids collected<br/>from submitBid + firehose] --> P{policy<br/>allow/deny by DID}
+    P -->|Eve: denounced, drop| X1[(log reason)]
+    P -->|Bob: vouched, allow| R[resolve bid.payload]
     R --> H{plugin exists<br/>for payload $type?}
     H -->|no| X2[(drop + log)]
     H -->|yes| S[score: lowest cost wins]
     S --> ACC[create market.accept]
 ```
 
-Defaults (in the reference acceptor): empty allowlist + empty denylist
-means "accept all"; scorer is lowest numeric `cost`.
+Alice has vouched for Bob and denounced Eve via `sh.tangled.graph.vouch`
+records. The policy engine reads the RFP's optional `policy` strongRef
+(`only_me`, `direct_network`, or `policy_based`) and the requester's
+vouch graph to decide who may bid. Eve's bid is dropped with a logged
+reason; Bob's bid passes and wins on cost.
 
 ### 8. Alice publishes the Accept
 
@@ -314,9 +373,20 @@ bid:
   $type: com.atproto.repo.strongRef
   uri: at://did:plc:bob/com.publicdomainrelay.temp.market.bid/3mm4...
   cid: bafyrei...bid
+submitEvent: did:plc:alice#pdr_temp_compute_event
+createdAt: "2026-05-07T03:26:47.000Z"
+signatures:
+  - $type: network.attested.signature
+    key: did:key:z...
+    issuer: did:plc:alice
+    signature:
+      $bytes: ...
 # uri: at://did:plc:alice/com.publicdomainrelay.temp.market.accept/3mlagijgoeb23
 # cid: bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4
 ```
+
+`submitEvent` is the requester's event endpoint — the bidder POSTs
+lifecycle events (vm.started, vm.delete, heartbeat) there.
 
 ### 9. Alice triggers payment / settlement
 
@@ -395,9 +465,21 @@ accept:
   $type: com.atproto.repo.strongRef
   uri: at://did:plc:alice/com.publicdomainrelay.temp.market.accept/3mlagijgoeb23
   cid: bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4
+submitEvent: did:plc:bob#pdr_temp_compute_event
+signatures:
+  - $type: network.attested.signature
+    key: did:key:z...
+    issuer: did:plc:bob
+    signature:
+      $bytes: ...
 # uri: at://did:plc:bob/com.publicdomainrelay.temp.market.receipt/3mld67yj3xo2u
 # cid: bafyreibzynxkkoxxvppbfoeh5s2s2asrm2j7ziw2ol5ufau4q25d7ousiy
 ```
+
+Terminal record. StrongRefs RFP → Bid → Accept. The requester verifies
+both signature validity and remote proof (receipt's `accept` field must
+match the requester's own accept record — same URI, CID, and author DID)
+before trusting the provisioned guest.
 
 ## Authority and validation rules
 
@@ -427,14 +509,20 @@ flowchart TB
     classDef bob fill:#def,stroke:#339
 ```
 
-- `Accept.rfp.uri` MUST equal `Bid.rfp.uri` (and CIDs must match) —
-  the provider relay refuses to settle otherwise.
+- `Accept.rfp.uri` MUST equal `Bid.rfp.uri` (and CIDs must match).
 - `Accept` MUST be authored by the same DID that authored the
-  referenced RFP. Otherwise anyone could settle anyone else's RFP.
+  referenced RFP.
 - `Receipt` MUST be authored by the same DID that authored the
   referenced Bid.
-- `bids.x402.url` is a template; `{at}` and `{cid}` are placeholders
-  replaced by Alice with the Accept's AT URI/CID before calling.
+- Every market record (`rfp`, `bid`, `accept`, `receipt`, `bids.*`,
+  `config.*`) MUST carry `signatures` — an inline badge.blue attestation
+  by the record's author. The bidder and requester each verify these
+  before dispatching or trusting records.
+- `Receipt.accept` MUST match the requester's own `market.accept` record
+  (same URI, CID, and author DID) — the requester verifies this via
+  remote proof before trusting the provisioned guest.
+- `bids.x402.url` is a template; the requester replaces `{at}` and
+  `{cid}` with the accept's AT URI and CID before calling.
 
 ## Discovery via backlinks
 
@@ -457,190 +545,6 @@ flowchart LR
 - When stable: drop the `.temp.` segment; evolve schemas additively.
 - Genuine breaking changes get a numeric suffix on the implementing
   model (e.g. `RFP_v0_1_0`) rather than a new lexicon.
-
-## Real flow — records from a live run
-
-Records captured 2026-07-07 from a local end-to-end run (requester →
-dispatcher → bidder → container provision).
-
-### 1. compute.vm (VM spec + cloud-init user_data)
-
-```yaml
-$type: com.publicdomainrelay.temp.compute.vm
-role: compute-eb56a1fc
-user_data: |
-  #cloud-config
-  packages:
-    - openssh-server
-    ...
-createdAt: "2026-07-07T05:58:02.527Z"
-# uri: at://did:plc:requester/com.publicdomainrelay.temp.compute.vm/3mpzwdilhdk2a
-# cid: bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym
-```
-
-The `user_data` carries the full `#cloud-config` YAML: sshd, websocat
-bridge, fedproxy-client systemd units. The requester generates an ed25519
-keypair, embeds the public key in `authorized_keys`, and holds the private
-key for the SSH session (see [docs/ATPROTO_REVERSE_PROXY.md](docs/ATPROTO_REVERSE_PROXY.md)).
-
-### 2. market.rfp (domain-tagged envelope)
-
-```yaml
-$type: com.publicdomainrelay.temp.market.rfp
-domain: compute
-payload:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:requester/com.publicdomainrelay.temp.compute.vm/3mpzwdilhdk2a
-  cid: bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym
-submitBid: did:plc:requester#pdr_temp_market
-createdAt: "2026-07-07T05:58:02.527Z"
-signatures:
-  - $type: network.attested.signature
-    key: did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ
-    issuer: did:plc:requester
-    signature:
-      $bytes: ...
-# uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
-# cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
-```
-
-`submitBid` is a service endpoint on the requester's DID doc; bidders
-POST bids there via XRPC service proxying. `signatures` is the inline
-badge.blue attestation — every requester-authored record carries one.
-`policy` (optional, not shown here) strongRefs a fulfillment policy record
-when `only_me` / `direct_network` / `policy_based` mode is set.
-
-### 3. market.offering (bidder discoverability)
-
-```yaml
-$type: com.publicdomainrelay.temp.market.offering
-endpointUrl: https://did-key-....localhost
-appliesTo:
-  - com.publicdomainrelay.temp.compute.vm
-createdAt: "2026-07-07T05:58:02.514Z"
-refreshedAt: "2026-07-07T05:58:02.514Z"
-# uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.offering/3mpzwdil2nc2a
-```
-
-One offering per bidder DID — created on `beginServe()`, periodically
-refreshed. `appliesTo` lists the NSIDs this bidder accepts RFPs for.
-
-### 4. config.wif.simple (WIF parameters)
-
-```yaml
-$type: com.publicdomainrelay.temp.compute.config.wif.simple
-accept_path: $HOME/secrets/publicdomainrelay.com/market/accept.json
-issuer_uri: https://did-key-....localhost
-to_issue: exchange-custom-droplet-oidc-poc
-token_path: /var/run/secrets/wid/token
-url_path: /var/run/secrets/wid/url
-url_route: /v1/oidc/issue
-subject: actx:<team-uuid>:plc:<requester-plc>:role:<role>
-# uri: at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a
-```
-
-The requester reads this to understand the provider's OIDC issuer and
-token paths. `accept_path` tells the VM where the accept bundle JSON
-lands (cloud-init `write_files`).
-
-### 5. bids.free / bids.x402 (settlement)
-
-Free:
-```yaml
-$type: com.publicdomainrelay.temp.market.bids.free
-cost: 0
-currency: USDC
-frequency: one-time
-prepay: false
-url: https://bidder.localhost
-```
-
-x402 (paid):
-```yaml
-$type: com.publicdomainrelay.temp.market.bids.x402
-cost: 0.10
-currency: USDC
-frequency: hourly
-prepay: true
-# {at}/{cid} get replaced by the requester with the accept's AT URI / CID
-url: https://compute-contract.bob.example/receipt
-```
-
-### 6. market.bid (bid envelope)
-
-```yaml
-$type: com.publicdomainrelay.temp.market.bid
-rfp:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
-  cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
-payload:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bids.free/3mpzwdilwxk2a
-  cid: bafyrei...free
-config:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a
-  cid: bafyrei...wif
-# uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a
-# cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
-```
-
-Three strongRefs: `rfp` (back to the RFP), `payload` (settlement terms),
-`config` (WIF parameters). The requester scores bids by `payload.cost`
-(lowest wins).
-
-### 7. market.accept
-
-```yaml
-$type: com.publicdomainrelay.temp.market.accept
-rfp:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
-  cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
-bid:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a
-  cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
-submitEvent: did:plc:requester#pdr_temp_compute_event
-createdAt: "2026-07-07T05:58:17.552Z"
-signatures:
-  - $type: network.attested.signature
-    key: did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ
-    issuer: did:plc:requester
-    signature:
-      $bytes: ...
-# uri: at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a
-# cid: bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a
-```
-
-`submitEvent` is the requester's event endpoint — the bidder POSTs
-lifecycle events (vm.delete, heartbeat) there.
-
-### 8. market.receipt
-
-```yaml
-$type: com.publicdomainrelay.temp.market.receipt
-rfp:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
-  cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
-bid:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a
-  cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
-accept:
-  $type: com.atproto.repo.strongRef
-  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a
-  cid: bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a
-# uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.receipt/3mpzwdwway32a
-# cid: bafyreidjsnqsopfeu52yljhr36zffrfzlw7nrixcojmcsv7rmp7k53mkwe
-```
-
-Terminal record. StrongRefs RFP → Bid → Accept. The requester verifies
-signature validity and remote proof (receipt's `accept` matches the
-requester's own accept — same URI, same CID, same author DID) before
-trusting the provisioned guest.
 
 ## Generic: Marketplace Exchange Wrappers (one level up)
 
@@ -931,12 +835,12 @@ docker run --rm --network host -u agent -w /home/agent \
           "bid": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid)."
           },
           "payload": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the accept record if there is anything to note about the acceptance (for example a com.publicdomainrelay.temp.market.accept.x402)."
+            "description": "Strong reference to the accept record if there is anything to note about the acceptance (for example a com.publicdomainrelay.temp.market.accept)."
           }
         }
       }
@@ -1063,17 +967,17 @@ docker run --rm --network host -u agent -w /home/agent \
           "bid": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid.x402)."
+            "description": "Strong reference to the bid record (for example a com.publicdomainrelay.temp.market.bid)."
           },
           "accept": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the accept record (for example a com.publicdomainrelay.temp.market.accept.x402)."
+            "description": "Strong reference to the accept record (for example a com.publicdomainrelay.temp.market.accept)."
           },
           "payload": {
             "type": "ref",
             "ref": "com.atproto.repo.strongRef",
-            "description": "Strong reference to the receipt record if there is anything to note about the receipt (for example a com.publicdomainrelay.temp.market.receipt.x402)."
+            "description": "Strong reference to the receipt record if there is anything to note about the receipt (for example a com.publicdomainrelay.temp.market.receipt)."
           }
         }
       }
@@ -1115,7 +1019,23 @@ docker run --rm --network host -u agent -w /home/agent \
 
 ## Examples
 
-The full flow using current NSIDs and `goat` CLI:
+The full flow using `goat` CLI.
+
+### Prerequisites
+
+```bash
+# goat (Go AT Protocol CLI, v0.2.3+)
+go install github.com/whyrusleeping/goat@latest
+
+# jq (JSON processor, 1.7+)
+brew install jq  # or: apt install jq
+
+# Log in as Alice (requester)
+goat account login --pds https://alice-pds.example.com --handle alice.test
+
+# Log in as Bob (bidder) — use a separate terminal or logout/login between steps
+# goat account logout && goat account login --pds https://bob-pds.example.com --handle bob.test
+```
 
 ### 1. Alice creates compute.vm (VM payload)
 
@@ -1126,6 +1046,10 @@ goat xrpc procedure @pds com.atproto.repo.createRecord - <<'EOF' | tee 0001-vm.j
   "collection": "com.publicdomainrelay.temp.compute.vm",
   "record": {
     "$type": "com.publicdomainrelay.temp.compute.vm",
+    "cpus": 2,
+    "mem": "4G",
+    "disk": "40G",
+    "network": "500G",
     "role": "my-cool-role",
     "user_data": "#cloud-config\npackages:\n  - openssh-server\n..."
   }
@@ -1144,7 +1068,6 @@ goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0002-rfp.js
   "collection": "com.publicdomainrelay.temp.market.rfp",
   "record": {
     "$type": "com.publicdomainrelay.temp.market.rfp",
-    "domain": "compute",
     "payload": { "$type": "com.atproto.repo.strongRef", "uri": "$VM_URI", "cid": "$VM_CID" },
     "submitBid": "did:plc:alice#pdr_temp_market",
     "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
@@ -1153,9 +1076,10 @@ goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0002-rfp.js
 EOF
 ```
 
-### 3. Bob creates bids.free or bids.x402 (settlement)
+### 3. Bob creates bids.free (settlement)
 
 ```bash
+# Logged in as Bob
 goat xrpc procedure @pds com.atproto.repo.createRecord - <<'EOF' | tee 0003-bids.json
 {
   "repo": "did:plc:bob",
@@ -1196,6 +1120,7 @@ EOF
 ### 5. Bob creates market.bid (bid envelope)
 
 ```bash
+# Re-derive refs from saved files (safe to run in fresh shell)
 RFP_URI=$(jq -r '.uri' 0002-rfp.json)
 RFP_CID=$(jq -r '.cid' 0002-rfp.json)
 BIDS_URI=$(jq -r '.uri' 0003-bids.json)
@@ -1210,7 +1135,8 @@ goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0005-bid.js
     "$type": "com.publicdomainrelay.temp.market.bid",
     "rfp": { "$type": "com.atproto.repo.strongRef", "uri": "$RFP_URI", "cid": "$RFP_CID" },
     "payload": { "$type": "com.atproto.repo.strongRef", "uri": "$BIDS_URI", "cid": "$BIDS_CID" },
-    "config": { "$type": "com.atproto.repo.strongRef", "uri": "$WIF_URI", "cid": "$WIF_CID" }
+    "config": { "$type": "com.atproto.repo.strongRef", "uri": "$WIF_URI", "cid": "$WIF_CID" },
+    "submitAccept": "did:plc:bob#pdr_temp_market"
   }
 }
 EOF
@@ -1219,6 +1145,9 @@ EOF
 ### 6. Alice creates market.accept
 
 ```bash
+# Logged in as Alice
+RFP_URI=$(jq -r '.uri' 0002-rfp.json)
+RFP_CID=$(jq -r '.cid' 0002-rfp.json)
 BID_URI=$(jq -r '.uri' 0005-bid.json)
 BID_CID=$(jq -r '.cid' 0005-bid.json)
 goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0006-accept.json
@@ -1238,6 +1167,11 @@ EOF
 ### 7. Bob creates market.receipt
 
 ```bash
+# Logged in as Bob
+RFP_URI=$(jq -r '.uri' 0002-rfp.json)
+RFP_CID=$(jq -r '.cid' 0002-rfp.json)
+BID_URI=$(jq -r '.uri' 0005-bid.json)
+BID_CID=$(jq -r '.cid' 0005-bid.json)
 ACCEPT_URI=$(jq -r '.uri' 0006-accept.json)
 ACCEPT_CID=$(jq -r '.cid' 0006-accept.json)
 goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0007-receipt.json
@@ -1261,9 +1195,9 @@ EOF
 goat get at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
 
 # List all records of a collection for a DID
-goat ls did:plc:alice com.publicdomainrelay.temp.market.rfp
+goat ls --collection com.publicdomainrelay.temp.market.rfp did:plc:alice
 
-# Watch firehose for new RFPs
+# Watch firehose for new RFPs (use --relay-host for non-production relays)
 goat firehose | jq 'select(.collection == "com.publicdomainrelay.temp.market.rfp")'
 ```
 
@@ -1277,6 +1211,7 @@ container-mode compute provider:
 deno run --allow-all atproto-market/compute-contract-full-flow/run_full_flow.ts
 ```
 
+Requires: Deno, Docker (or Apple `container` CLI on macOS), `websocat`, `jq`.
 See [`publicdomainrelay/compute-contract-full-flow/`](https://github.com/publicdomainrelay/publicdomainrelay/tree/main/compute-contract-full-flow)
 for logs and records from a live run.
 
