@@ -461,10 +461,9 @@ flowchart LR
 ## Real flow — records from a live run
 
 Records captured 2026-07-07 from a local end-to-end run (requester →
-dispatcher → bidder → container provision). Records are shown as YAML
-for readability; on the wire they are JSON in ATProto repositories.
+dispatcher → bidder → container provision).
 
-### 1. Requester publishes compute.vm (VM spec + cloud-init user_data)
+### 1. compute.vm (VM spec + cloud-init user_data)
 
 ```yaml
 $type: com.publicdomainrelay.temp.compute.vm
@@ -479,12 +478,12 @@ createdAt: "2026-07-07T05:58:02.527Z"
 # cid: bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym
 ```
 
-The `user_data` field carries the full `#cloud-config` YAML: sshd,
-websocat bridge, fedproxy-client systemd units. The requester generates an
-ed25519 keypair, embeds the public key in `authorized_keys`, and holds the
-private key for the SSH session.
+The `user_data` carries the full `#cloud-config` YAML: sshd, websocat
+bridge, fedproxy-client systemd units. The requester generates an ed25519
+keypair, embeds the public key in `authorized_keys`, and holds the private
+key for the SSH session (see [docs/ATPROTO_REVERSE_PROXY.md](docs/ATPROTO_REVERSE_PROXY.md)).
 
-### 2. Requester publishes market.rfp (domain-tagged envelope)
+### 2. market.rfp (domain-tagged envelope)
 
 ```yaml
 $type: com.publicdomainrelay.temp.market.rfp
@@ -500,22 +499,18 @@ signatures:
     key: did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ
     issuer: did:plc:requester
     signature:
-      $bytes: "..."
+      $bytes: ...
 # uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
 # cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
 ```
 
-Key fields beyond the old schema:
-- `submitBid` — service endpoint on the requester's DID doc where bidders
-  POST their bids via XRPC service proxying
-- `signatures` — inline badge.blue attestation, signed by the requester's
-  attestation key (published in their DID document). Every requester-authored
-  record carries this.
-- `policy` (optional) — strongRef to a fulfillment policy record
-  (`com.publicdomainrelay.temp.market.policy`). Set when the requester
-  uses `only_me`, `direct_network`, or `policy_based` mode.
+`submitBid` is a service endpoint on the requester's DID doc; bidders
+POST bids there via XRPC service proxying. `signatures` is the inline
+badge.blue attestation — every requester-authored record carries one.
+`policy` (optional, not shown here) strongRefs a fulfillment policy record
+when `only_me` / `direct_network` / `policy_based` mode is set.
 
-### 3. Bidder publishes market.offering (discoverability)
+### 3. market.offering (bidder discoverability)
 
 ```yaml
 $type: com.publicdomainrelay.temp.market.offering
@@ -527,12 +522,10 @@ refreshedAt: "2026-07-07T05:58:02.514Z"
 # uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.offering/3mpzwdil2nc2a
 ```
 
-One offering per bidder DID. The bidder creates it on `beginServe()` and
-periodically refreshes the timestamp. `appliesTo` lists the NSIDs this
-bidder accepts RFPs for. The requester discovers bidders by scanning
-offering records (relay index, firehose, or manual DID list).
+One offering per bidder DID — created on `beginServe()`, periodically
+refreshed. `appliesTo` lists the NSIDs this bidder accepts RFPs for.
 
-### 4. Bidder publishes config.wif.simple (WIF parameters)
+### 4. config.wif.simple (WIF parameters)
 
 ```yaml
 $type: com.publicdomainrelay.temp.compute.config.wif.simple
@@ -546,13 +539,13 @@ subject: actx:<team-uuid>:plc:<requester-plc>:role:<role>
 # uri: at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a
 ```
 
-The requester reads this to understand the provider's OIDC issuer, token
-paths, and how the VM will authenticate. The `accept_path` tells the VM
-where the accept bundle JSON will be written (cloud-init `write_files`).
+The requester reads this to understand the provider's OIDC issuer and
+token paths. `accept_path` tells the VM where the accept bundle JSON
+lands (cloud-init `write_files`).
 
-### 5. Bidder publishes bids.free or bids.x402 (settlement)
+### 5. bids.free / bids.x402 (settlement)
 
-Free settlement (no payment):
+Free:
 ```yaml
 $type: com.publicdomainrelay.temp.market.bids.free
 cost: 0
@@ -562,17 +555,18 @@ prepay: false
 url: https://bidder.localhost
 ```
 
-x402 settlement (paid):
+x402 (paid):
 ```yaml
 $type: com.publicdomainrelay.temp.market.bids.x402
 cost: 0.10
 currency: USDC
 frequency: hourly
 prepay: true
+# {at}/{cid} get replaced by the requester with the accept's AT URI / CID
 url: https://compute-contract.bob.example/receipt
 ```
 
-### 6. Bidder publishes market.bid (bid envelope)
+### 6. market.bid (bid envelope)
 
 ```yaml
 $type: com.publicdomainrelay.temp.market.bid
@@ -592,11 +586,11 @@ config:
 # cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
 ```
 
-The bid wraps three strongRefs: `rfp` (back to the RFP), `payload`
-(settlement terms), and `config` (WIF parameters). The requester scores
-bids by `payload.cost` (lowest wins).
+Three strongRefs: `rfp` (back to the RFP), `payload` (settlement terms),
+`config` (WIF parameters). The requester scores bids by `payload.cost`
+(lowest wins).
 
-### 7. Requester publishes market.accept
+### 7. market.accept
 
 ```yaml
 $type: com.publicdomainrelay.temp.market.accept
@@ -615,16 +609,15 @@ signatures:
     key: did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ
     issuer: did:plc:requester
     signature:
-      $bytes: "..."
+      $bytes: ...
 # uri: at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a
 # cid: bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a
 ```
 
 `submitEvent` is the requester's event endpoint — the bidder POSTs
-lifecycle events (vm.delete, heartbeat) here. The accept is
-signed the same way as the RFP.
+lifecycle events (vm.delete, heartbeat) there.
 
-### 8. Bidder publishes market.receipt
+### 8. market.receipt
 
 ```yaml
 $type: com.publicdomainrelay.temp.market.receipt
@@ -644,25 +637,10 @@ accept:
 # cid: bafyreidjsnqsopfeu52yljhr36zffrfzlw7nrixcojmcsv7rmp7k53mkwe
 ```
 
-The receipt is the terminal record. It strongRefs RFP → Bid → Accept.
-The requester verifies it before trusting the provisioned guest:
-signature validity (receipt signed by bidder's attestation key) and
-remote proof (receipt's `accept` field matches the requester's own
-accept record — same URI, same CID, same author DID).
-
-## Naming: old → new
-
-The lexicon was renamed pre-stabilization. The old names in the "Data
-Formats" / "Examples" sections of earlier versions of this README used:
-
-| Old name | Current name |
-|----------|--------------|
-| `ccrfp` | `compute.vm` (the VM payload; `market.rfp` is the domain envelope) |
-| `ccb` | `market.bid` (bid envelope) + `bids.x402` or `bids.free` (settlement) |
-| `ccbap` | Dropped. Payment is handled via x402 URL template in `bids.x402`. |
-| `ccba` | `market.accept` |
-| `ccr` | `market.receipt` |
-| `rfp` (top-level) | `market.rfp` |
+Terminal record. StrongRefs RFP → Bid → Accept. The requester verifies
+signature validity and remote proof (receipt's `accept` matches the
+requester's own accept — same URI, same CID, same author DID) before
+trusting the provisioned guest.
 
 ## Generic: Marketplace Exchange Wrappers (one level up)
 
