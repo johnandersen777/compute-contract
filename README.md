@@ -29,9 +29,9 @@ All cross-record references use `com.atproto.repo.strongRef`
 
 ## References
 
-- https://github.com/publicdomainrelay/compute-contract-provider-relay-digitalocean
-- https://github.com/publicdomainrelay/atproto-reverse-proxy
-- https://github.com/publicdomainrelay/agent-atproto-typescript
+- https://github.com/publicdomainrelay/publicdomainrelay — monorepo: bidder, requester, relay, compute providers, cloud-init
+- https://github.com/publicdomainrelay/atproto-reverse-proxy — fedproxy-client (guest-side tunnel agent)
+- https://github.com/publicdomainrelay/compute-contract — this repo (lexicons, docs, examples)
 
 ## Flow
 
@@ -46,7 +46,8 @@ records living in ATProto repositories.
 |----------|---------------------------------------------------------------|
 | Alice    | Requester. Authors the **RFP** and later the **Accept**.      |
 | Bob      | Provider. Authors **Bids** and the **Receipt**.               |
-| Relay    | Optional broker / hook host that turns firehose commits into HTTP webhooks (e.g. airglow). |
+| Dispatcher | did-key-relay XRPC relay. Routes WebSocket traffic by SNI subdomain. Guest reaches requester **only** through this relay. |
+| Relay    | AT Protocol relay / firehose consumer. Indexes offering records for bidder discovery. |
 | PDS      | Each actor's ATProto Personal Data Server holding their records. |
 | Firehose | `com.atproto.sync.subscribeRepos` / Jetstream — public commit stream. |
 
@@ -128,6 +129,61 @@ stateDiagram-v2
     Rejected --> [*]
     Settled --> [*]
 ```
+
+## SSH Tunnel Topology
+
+Guest VM/container never opens a public port. All traffic flows through the
+did-key-relay dispatcher. The requester reaches the guest exclusively through
+this relay — SSH `ProxyCommand` over a WebSocket tunnel.
+
+```
+requester SSH client
+  ProxyCommand websocat --binary wss://<service>--did-plc-<key>.fedproxy.com
+    → fedproxy dispatcher (did-key-relay, routes by SNI subdomain)
+      → fedproxy-client (guest side, dialed outbound through relay)
+        → websocat ws-l:127.0.0.1:8080 → sshd 127.0.0.1:22
+```
+
+### Guest cloud-init (what Bob injects)
+
+The `compute.vm.user_data` is a `#cloud-config` YAML document. Bob's
+compute provider enriches it with OIDC provisioning (nonce + prove
+script) and RBAC grants, then hands it to the container/VM backend. The
+default transport (fedproxy) installs:
+
+- **sshd** — key-only root login, loopback-only (`ListenAddress 127.0.0.1`)
+- **websocat** — bridges `ws-l:127.0.0.1:8080 → tcp:127.0.0.1:22`
+- **fedproxy-client** — fronts websocat, dials the relay outbound, registers the guest's FQDN
+- Alternative: **tunnel-subscriber** (did-key-relay xrpc subscriber) replaces
+  fedproxy-client + websocat with a single Deno process that speaks the relay
+  tunnel protocol directly
+
+### Service endpoints on bidder
+
+The bidder exposes these XRPC service endpoints (advertised via its
+`did:web` document, proxied through the relay):
+
+| NSID | Method | Purpose |
+|------|--------|---------|
+| `com.publicdomainrelay.temp.market.submitRfp` | XRPC procedure | Requester pushes RFP to bidder |
+| `com.publicdomainrelay.temp.market.submitAccept` | XRPC procedure | Requester pushes Accept to winning bidder |
+| `com.publicdomainrelay.temp.market.submitEvent` | XRPC procedure | Requester sends lifecycle events (vm.delete, etc.) |
+
+### Bidder discovery (how requester finds bidders)
+
+1. **Relay index** (`listReposByCollection` on `market.offering`) — primary
+2. **Firehose watch** (subscribeRepos / Jetstream filtered to `market.offering`) — live complement
+3. **Vouch graph** (`sh.tangled.graph.vouch`) — social-trust allowlist
+4. **Manual** (`extraBidderDids` / `denyBidderDids` in contract options)
+
+### Record signatures
+
+All requester-authored records (`market.rfp`, `market.accept`) carry inline
+badge.blue attestations (`network.attested.signature`). The attestation
+key is published in the author's DID document. The bidder verifies
+signatures before dispatching to callbacks. The requester verifies the
+receipt's signature + remote proof (receipt binds to the accept record)
+before trusting the provisioned guest.
 
 ## End-to-end sequence
 
@@ -447,360 +503,246 @@ flowchart LR
 - Genuine breaking changes get a numeric suffix on the implementing
   model (e.g. `RFP_v0_1_0`) rather than a new lexicon.
 
-## Data Formats
+## Real flow — records from a live run
 
-- Alice CCRFP manifest
+Records captured 2026-07-07 from a local end-to-end run (requester →
+dispatcher → bidder → container provision). The flow produced these AT
+Protocol records:
 
-```yaml
----
-$type: "com.publicdomainrelay.temp.ccrfp"
-cpus: 1
-mem: '512M'
-disk: '10G'
-network: '500G'
-location:
-  country: 'USA'
-  region: 'west'
-role: 'my-cool-role'
-user_data: |
-  #cloud-init
-  packages:
-    - openssh-client
-    - python3
-  write_files:
-    - path: /var/www/8080/index.html
-      owner: root:root
-      permissions: '0644'
-      content: |
-        Hello World!
+### 1. Requester publishes compute.vm (VM spec + cloud-init user_data)
 
-    - path: /etc/systemd/system/python-http@.service
-      owner: root:root
-      permissions: '0644'
-      content: |
-        [Unit]
-        Description=Simple Python HTTP server on port %i
-        After=network.target
-        Wants=network.target
-
-        [Service]
-        Type=simple
-        User=root
-        WorkingDirectory=/var/www/%i
-        Environment=PYTHONUNBUFFERED=1
-        ExecStart=/usr/bin/python3 -m http.server %i --bind 127.0.0.1
-        Restart=always
-        RestartSec=5
-        TimeoutStopSec=10
-        StandardOutput=journal
-        StandardError=journal
-
-        [Install]
-        WantedBy=multi-user.target
-
-    - path: /usr/local/bin/ssh-reverse-tunnel-wrapper
-      owner: root:root
-      permissions: '0700'
-      content: |
-        #!/usr/bin/env bash
-        set -euo pipefail
-
-        INSTANCE="${1:-}"
-        [ -n "$INSTANCE" ] || { echo "Missing instance" >&2; exit 2; }
-
-        # Expect INSTANCE to be SERVICE.HANDLE (HANDLE may contain dots)
-        SERVICE="${INSTANCE%%.*}"
-        HANDLE="${INSTANCE#*.}"
-
-        if [ -z "$SERVICE" ] || [ "$SERVICE" = "$HANDLE" ]; then
-          echo "Instance must be in the form SERVICE.HANDLE (e.g. myname.aliceoa.bsky.social)" >&2
-          exit 2
-        fi
-
-        REMOTE_SSH="${HANDLE}@fedproxy.com"
-        REMOTE_BIND="${SERVICE}:80:127.0.0.1:8080"
-
-        exec /usr/bin/ssh -NnT -p 2222 \
-          -i /root/.ssh/id_ed25519 \
-          -o UserKnownHostsFile=/dev/null \
-          -o StrictHostKeyChecking=no \
-          -o PasswordAuthentication=no \
-          -o ExitOnForwardFailure=yes \
-          -R "${REMOTE_BIND}" \
-          "${REMOTE_SSH}"
-
-    - path: /etc/systemd/system/fedproxy@.service
-      owner: root:root
-      permissions: '0644'
-      content: |
-        [Unit]
-        Description=SSH reverse tunnel for %i (SERVICE.HANDLE -> %i@fedproxy)
-        After=network-online.target
-        Wants=network-online.target
-        StartLimitIntervalSec=60
-        StartLimitBurst=5
-
-        [Service]
-        Type=simple
-        User=root
-        WorkingDirectory=/root
-        Environment=INSTANCE=%i
-        ExecStart=/usr/local/bin/ssh-reverse-tunnel-wrapper "%i"
-        Restart=always
-        RestartSec=5
-        TimeoutStopSec=20
-        StandardOutput=journal
-        StandardError=journal
-
-        [Install]
-        WantedBy=multi-user.target
-  runcmd:
-  - |
-      # NOTE these run as sh! not bash!
-
-      # TODO This should not be using set -x because tokens get logged
-      set -x
-
-      ATPRP_URL="https://rp.fedproxy.com"
-      # https://pdsls.dev/at://did:plc:5svqtrhheairglgiiyvutzik/com.fedproxy.rbac/3mlewidctvt2n
-      HANDLE="johnandersen777.bsky.social"
-      DID_PLC_KEY="5svqtrhheairglgiiyvutzik"
-      DID_PLC="did:plc:${DID_PLC_KEY}"
-
-      mkdir -p /root/.ssh
-      chmod 660 /root/.ssh
-      yes | ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519
-      SSH_PUB=$(cat /root/.ssh/id_ed25519.pub)
-
-      # TODO Make sure CCB is ingestable
-
-      URL=$(cat /root/secrets/digitalocean.com/serviceaccount/base_url)
-      TEAM_UUID=$(cat /root/secrets/digitalocean.com/serviceaccount/team_uuid)
-      ID_TOKEN=$(cat /root/secrets/digitalocean.com/serviceaccount/token)
-
-      SUBJECT="actx:${TEAM_UUID}:plc:${DID_PLC_KEY}:role:my-cool-role"
-
-      SERVICE="$(openssl rand -hex 4)"
-
-      TOKEN=$(jq -n -c \
-          --arg aud "api://ATProto?actx=${DID_PLC}" \
-          --arg sub "${SUBJECT}" \
-          --arg ttl 3600 \
-          '{aud: $aud, sub: $sub, ttl: ($ttl | fromjson)}' | \
-        curl -sf \
-          -H "Authorization: Bearer ${ID_TOKEN}" \
-          -d@- \
-          "${URL}/v1/oidc/issue" \
-          | jq -r .token)
-
-      curl -s \
-        -X POST \
-        -H "Authorization: Bearer ${TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d '{
-              "repo": "'"${DID_PLC}"'",
-              "collection": "com.fedproxy.sshPublicKey",
-              "record": {
-                "$type": "com.fedproxy.sshPublicKey",
-                "key": "'"${SSH_PUB}"'",
-                "service": "'"${SERVICE}"'",
-                "name": "'"${SERVICE}"'",
-                "createdAt": "'$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")'"
-              }
-            }' \
-        "${ATPRP_URL}/xrpc/com.atproto.repo.createRecord" | jq
-
-      mkdir -p /var/www/8080
-      chown root:root /var/www/8080
-      systemctl daemon-reload
-      systemctl enable --now python-http@8080.service
-      systemctl enable --now "fedproxy@${SERVICE}.${HANDLE}.service"
-```
-
-- Alice wraps her CCRFP in a top-level RFP envelope. The outer record carries
-  the marketplace `domain` and strongRefs the VM-specific CCRFP. Indexers and
-  policy engines route on `domain` without parsing the inner payload:
-
-```yaml
----
-$type: "com.publicdomainrelay.temp.rfp"
-domain: "compute"
-payload:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-```
-
-- Alice watches for bids
-  - **TODO** Filter by `embed.cid && uri` using jq
-
-```bash
-timeout 15s uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identity_oauth_reverse_proxy/firehose_to_ndjson.py | jq 'select(.collection | startswith("com.publicdomainrelay.temp.ccb"))'
-```
-
-- Bob CCB
-
-```yaml
----
-$type: "com.publicdomainrelay.temp.ccb"
-embed:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-bid:
-  cost: 4
-  currency: USDC
-  frequency: monthly
-  prepay: true
-  x402:
-    base_url: https://compute-contract.johnandersen777.bsky.social.fedproxy.com/ccr/{at}/{cid}
-wif:
-  issuer_uri: https://droplet-oidc.its1337.com
-  to_issue: exchange-custom-droplet-oidc-poc
-  token_path: /root/secrets/digitalocean.com/serviceaccount/token
-  url_path: /root/secrets/digitalocean.com/serviceaccount/base_url
-  url_route: /v1/oidc/issue
-  subject: actx:4959ec0923473bf22bddd7bec2caf58a294ee007:plc:{did-plc-key}:role:{role}
-```
-
-- Alice chooses and pays
-
-```bash
-$ npx awal x402 pay https://spindle-0001.johnandersen777.bsky.social.fedproxy.com/weather
-✓ Request completed (HTTP 200)
-
-Response:
+```json
 {
-  "report": {
-    "weather": "sunny",
-    "temperature": 70
+  "$type": "com.publicdomainrelay.temp.compute.vm",
+  "role": "compute-eb56a1fc",
+  "user_data": "#cloud-config\npackages:\n  - openssh-server\n  ...",
+  "createdAt": "2026-07-07T05:58:02.527Z"
+}
+```
+
+The `user_data` field carries the full `#cloud-config` YAML: sshd,
+websocat bridge, fedproxy-client systemd units. The requester generates an
+ed25519 keypair, embeds the public key in `authorized_keys`, and holds the
+private key for the SSH session.
+
+### 2. Requester publishes market.rfp (domain-tagged envelope)
+
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.rfp",
+  "domain": "compute",
+  "payload": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.compute.vm/3mpzwdilhdk2a",
+    "cid": "bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym"
+  },
+  "submitBid": "did:plc:requester#pdr_temp_market",
+  "createdAt": "2026-07-07T05:58:02.527Z",
+  "signatures": [{
+    "$type": "network.attested.signature",
+    "key": "did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ",
+    "issuer": "did:plc:requester",
+    "signature": { "$bytes": "..." }
+  }]
+}
+```
+
+Key fields beyond the old schema:
+- `submitBid` — service endpoint on the requester's DID doc where bidders
+  POST their bids via XRPC service proxying
+- `signatures` — inline badge.blue attestation, signed by the requester's
+  attestation key (published in their DID document). Every requester-authored
+  record carries this.
+- `policy` (optional) — strongRef to a fulfillment policy record
+  (`com.publicdomainrelay.temp.market.policy`). Set when the requester
+  uses `only_me`, `direct_network`, or `policy_based` mode.
+
+### 3. Bidder publishes market.offering (discoverability)
+
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.offering",
+  "endpointUrl": "https://did-key-....localhost",
+  "appliesTo": ["com.publicdomainrelay.temp.compute.vm"],
+  "createdAt": "2026-07-07T05:58:02.514Z",
+  "refreshedAt": "2026-07-07T05:58:02.514Z"
+}
+```
+
+One offering per bidder DID. The bidder creates it on `beginServe()` and
+periodically refreshes the timestamp. `appliesTo` lists the NSIDs this
+bidder accepts RFPs for. The requester discovers bidders by scanning
+offering records (relay index, firehose, or manual DID list).
+
+### 4. Bidder publishes config.wif.simple (WIF parameters)
+
+```json
+{
+  "$type": "com.publicdomainrelay.temp.compute.config.wif.simple",
+  "accept_path": "$HOME/secrets/publicdomainrelay.com/market/accept.json",
+  "issuer_uri": "https://did-key-....localhost",
+  "to_issue": "exchange-custom-droplet-oidc-poc",
+  "token_path": "/var/run/secrets/wid/token",
+  "url_path": "/var/run/secrets/wid/url",
+  "url_route": "/v1/oidc/issue",
+  "subject": "actx:<team-uuid>:plc:<requester-plc>:role:<role>"
+}
+```
+
+The requester reads this to understand the provider's OIDC issuer, token
+paths, and how the VM will authenticate. The `accept_path` tells the VM
+where the accept bundle JSON will be written (cloud-init `write_files`).
+
+### 5. Bidder publishes bids.free or bids.x402 (settlement)
+
+Free settlement (no payment):
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.bids.free",
+  "cost": 0,
+  "currency": "USDC",
+  "frequency": "one-time",
+  "prepay": false,
+  "url": "https://bidder.localhost"
+}
+```
+
+x402 settlement (paid):
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.bids.x402",
+  "cost": 0.10,
+  "currency": "USDC",
+  "frequency": "hourly",
+  "prepay": true,
+  "url": "https://compute-contract.bob.example/receipt"
+}
+```
+
+### 6. Bidder publishes market.bid (bid envelope)
+
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.bid",
+  "rfp": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a",
+    "cid": "bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty"
+  },
+  "payload": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.market.bids.free/3mpzwdilwxk2a",
+    "cid": "..."
+  },
+  "config": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a",
+    "cid": "..."
   }
 }
-$ npx awal auth login johnandersenpdx@gmail.com
-$ https://github.com/googleworkspace/cli get emails
-$ npx awal auth verify $CODE
-# echo npx awal@latest show
-# ✓ Wallet window opened
-$ npx awal address
-EVM (Base): 0x9012310923809128309182903812093801923211
-Solana: Fs10238091283091283098109283091283928010101
-$ npx awal balance
-
-Base
-────────────────────────
-USDC    5.00
-ETH     0.00
-
-Polygon
-────────────────────────
-USDC    0.00
-POL     0.00
-
-Solana
-────────────────────────
-USDC    0.00
-SOL     0.00
 ```
 
-- Alice CCBAP (Compute Contract Bid Accept Payment) is the on-chain payment
-  receipt that references the CCB Alice paid against:
+The bid wraps three strongRefs: `rfp` (back to the RFP), `payload`
+(settlement terms), and `config` (WIF parameters). The requester scores
+bids by `payload.cost` (lowest wins).
 
-```yaml
----
-$type: "com.publicdomainrelay.temp.ccbap"
-embed:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-txid: "0xabcdef0123456789..."
+### 7. Requester publishes market.accept
+
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.accept",
+  "rfp": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a",
+    "cid": "bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty"
+  },
+  "bid": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a",
+    "cid": "bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe"
+  },
+  "submitEvent": "did:plc:requester#pdr_temp_compute_event",
+  "createdAt": "2026-07-07T05:58:17.552Z",
+  "signatures": [{ "$type": "network.attested.signature", ... }]
+}
 ```
 
-- Alice CCBA (Compute Contract Bid Accept) ties the CCRFP, CCB, and the CCBAP
-  (payment receipt) together. The provider's `/ccr` endpoint is fed the CCBA
-  AT URI and CID:
+`submitEvent` is the requester's event endpoint — the bidder POSTs
+lifecycle events (vm.delete, heartbeat) here. The accept is
+signed the same way as the RFP.
 
-```yaml
----
-$type: "com.publicdomainrelay.temp.ccba"
-embed:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-bid:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-payment:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccbap/3kjsdf98sdf89"
-  cid: "dfsknml1823j12k3m1l2jn31288j12k3jkl3n439j41pk32m8sdjfoisdjf"
+### 8. Bidder publishes market.receipt
+
+```json
+{
+  "$type": "com.publicdomainrelay.temp.market.receipt",
+  "rfp": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a",
+    "cid": "bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty"
+  },
+  "bid": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a",
+    "cid": "bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe"
+  },
+  "accept": {
+    "$type": "com.atproto.repo.strongRef",
+    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a",
+    "cid": "bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a"
+  }
+}
 ```
 
-- Bob CCR (Compute Contract Receipt) at createRecord response returned from
-  payment.base_url on x402 success which resolves to this record:
+The receipt is the terminal record. It strongRefs RFP → Bid → Accept.
+The requester verifies it before trusting the provisioned guest:
+signature validity (receipt signed by bidder's attestation key) and
+remote proof (receipt's `accept` field matches the requester's own
+accept record — same URI, same CID, same author DID).
 
-```yaml
----
-$type: "com.publicdomainrelay.temp.ccr"
-rfp:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3m21312k9jnkl"
-  cid: "asdlfkjsdlkfjlasdkfqeuhoj134j3lk43lk2j4308j43n4l3n2lk3j4l32"
-bid:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:bob000000000000000000000/com.publicdomainrelay.temp.ccb/js9df8jo2j32l"
-  cid: "7hvb3njk42348nlk4jh5njhlkjhkdfjsdbfsjfje92yh7yhd98sf98d0sus"
-ccba:
-  $type: "com.atproto.repo.strongRef"
-  uri: "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccba/3mlagijgoeb23"
-  cid: "bafyreiamisq3yqgb4k3tdojmzvvzpuwj46ytwbj672zxhyxxl7t36qadz4"
-compute:
-  # The IPv4 address of the provisioned compute
-  ipv4: '1.1.1.1'
-```
+## Naming: old → new
+
+The lexicon was renamed pre-stabilization. The old names in the "Data
+Formats" / "Examples" sections of earlier versions of this README used:
+
+| Old name | Current name |
+|----------|--------------|
+| `ccrfp` | `compute.vm` (the VM payload; `market.rfp` is the domain envelope) |
+| `ccb` | `market.bid` (bid envelope) + `bids.x402` or `bids.free` (settlement) |
+| `ccbap` | Dropped. Payment is handled via x402 URL template in `bids.x402`. |
+| `ccba` | `market.accept` |
+| `ccr` | `market.receipt` |
+| `rfp` (top-level) | `market.rfp` |
 
 ## Generic: Marketplace Exchange Wrappers (one level up)
 
-- TODO
-  - https://discourse.atprotocol.community/t/tranquil-instance-for-delegated-accounts/850
-    - tranquil instance and accounts as an example
-    - RFP for VPS
-    - RFP for Tranquil on VPS
-    - RFP for Account on Tranquil PDS
-    - Maybe work backwards with patterns and anti-patterns adhearence baked in
-      for downstream.
-      - Frank requests account for Agent Charlie
-      - Alice sees RFP for Charlie Account and makes RFP for VPS
-      - Bob sees Alice RFP and Bids
-      - Alice sees Bob's bid and adds her setup fee, then returns her bid
-      - There should be a way to pay with a voucher of some kind that is not
-        real currency. For Dave may grant a voucher for creation of Agent
-        Charlie because Agent Charlie's requisition flow is to be funded from
-        the [AT Community Fund](https://discourse.atprotocol.community/t/about-the-community-fund-category/27).
-        In this case we need a way for Bob and Alice to say they will do it
-        pro-bono for the AT Community Fund's sake. Or to accept indirect payment
-        from the fund instead of from Frank directly.
-  - https://attested.network/scenarios.html
-    - Use attested.network `"$type": "com.atproto.repo.strongRef",` as best practice here
-    - Also use attested.network for payments eventually
-      - Step 1 for this would be to have the payment strongRef in the CCB reference https://attested.network/brokers.html
-  - https://tangled.org/tranquil.farm/tranquil-pds/blob/main/docs/install-kubernetes.md
-    - https://www.kcp.io abstraction to spin on CCRFPs
-    - https://tangled.org/tranquil.farm/tranquil-pds/blob/main/crates/tranquil-api/src/delegation.rs
-  - Also proxy `*.service.handle.fedproxy.com` so to `service.handle.fedproxy.com` so that the service can reverse proxy futher 🐢
-- Notes
-  - https://zicklag.leaflet.pub/3mjrvb5pul224
-  - https://nelind.leaflet.pub/3mljaycxcqc2h
-- `opencode export|import`
-  - https://gist.github.com/johnandersen777/76d6773f79500f036f989ae9caaa85f0
-- fedproxy auto rbac via records similar to ssh keys
+The `market.rfp` → `market.bid` → `market.accept` → `market.receipt`
+pattern is generic. The `domain` field on the RFP tells bidders and policy
+engines what kind of payload the RFP carries. `compute` is the first
+domain; others (storage, CDN, agent hosting) follow the same envelope
+pattern with different inner payload lexicons.
+
+### Ideas / future work
+
+- Multi-party RFPs: Frank requests an agent account → Alice bids VPS →
+  Bob bids Tranquil PDS on that VPS → Alice accepts both, chains them.
+- Voucher / pro-bono settlement: AT Community Fund grants indirect payment.
+- `market.bids.free` alongside `market.bids.x402` — free tier for dev/test.
+- `opencode export|import` as a compute role.
+- fedproxy auto-RBAC via records (similar to sshPublicKey pattern).
+
+### Example: OpenCode on fedproxy
 
 ```bash
 docker model pull hf.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-Q2_K_XL
+docker run -d --restart=unless-stopped --name llama-mtp \
+  --device /dev/dri --device /dev/kfd \
+  -v docker-model-runner-models:/models -p 127.0.0.1:12434:12434 \
+  --entrypoint /app/llama-server docker/model-runner:mtp \
+  -m /models/.../model.gguf --host 0.0.0.0 --port 12434
 
-docker run -d --restart=unless-stopped --name llama-mtp-8k-no-reasoning --device /dev/dri --device /dev/kfd     -e HIP_VISIBLE_DEVICES=0 -e ROCR_VISIBLE_DEVICES=0     -v docker-model-runner-models:/models -p 127.0.0.1:12434:12434     --entrypoint /app/llama-server docker/model-runner:mtp     -m /models/bundles/sha256/60b929136fc442800ef3cc2b200e026419c6b30b704c2ae7bf4b4a31957dde72/model/model.gguf     --host 0.0.0.0 --port 12434 -c 131072 -np 1 -ngl 999 --device ROCm0     -fa on     --cache-type-k q8_0 --cache-type-v q8_0     --spec-type draft-mtp --spec-draft-n-max 3 --reasoning-budget 0 --no-mmproj
-
-docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubuntu:latest /home/agent/.opencode/bin/opencode serve --port 4096
+docker run --rm --network host -u agent -w /home/agent \
+  opencode-ubuntu:latest /home/agent/.opencode/bin/opencode serve --port 4096
 ```
 
 ```json
@@ -810,18 +752,8 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
   "provider": {
     "llama.cpp": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "llama-server (local)",
       "options": {
         "baseURL": "https://qwen-0001.johnandersen777.bsky.social.fedproxy.com/v1"
-      },
-      "models": {
-        "qwen3.6-mtp": {
-          "name": "Qwen3.6-35B-A3B-MTP-GGUF:UD-Q2_K_XL",
-          "limit": {
-            "context": 131072,
-            "output": 65536
-          }
-        }
       }
     }
   }
@@ -1255,151 +1187,170 @@ docker run --rm --network host -u agent -w /home/agent -p 4096:4096 opencode-ubu
 
 ## Examples
 
-The full flow: Alice creates the VM-specific CCRFP, then wraps it in a
-top-level RFP envelope (so policy engines / indexers can route on
-`domain: "compute"`), then Bob creates the CCB referencing the CCRFP, then the
-CCBAP (payment receipt) referencing the CCB, then the CCBA tying
-CCRFP/CCB/CCBAP together, and finally hand the CCBA AT URI/CID to the
-provider's `/ccr` endpoint.
+The full flow using current NSIDs and `goat` CLI:
 
-Every cross-record reference is a `com.atproto.repo.strongRef`
-(`{$type, uri, cid}`).
+### 1. Alice creates compute.vm (VM payload)
 
 ```bash
-# 1. Alice creates the VM-specific CCRFP
-file="examples/data/spin-droplet-0001/0001-ccrfp/request.json"
-goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
-  | tee "$(dirname "${file}")/response.json" | jq
-
-# 2. Alice creates the top-level RFP envelope strongRef'ing her CCRFP
-IN="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
-OUT_OLD="$(cat examples/data/spin-droplet-0001/0002-rfp/request.json | jq -c)"
-echo "${OUT_OLD}" \
-  | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
-       --arg cid "$(echo "${IN}" | jq -r '.cid')" \
-       '.record.payload.uri = $uri | .record.payload.cid = $cid' \
-  | tee examples/data/spin-droplet-0001/0002-rfp/request.json
-file="examples/data/spin-droplet-0001/0002-rfp/request.json"
-goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
-  | tee "$(dirname "${file}")/response.json" | jq
-
-# 3. Bob creates the CCB referencing Alice's CCRFP
-IN="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
-OUT_OLD="$(cat examples/data/spin-droplet-0001/0003-ccb/request.json | jq -c)"
-echo "${OUT_OLD}" \
-  | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
-       --arg cid "$(echo "${IN}" | jq -r '.cid')" \
-       '.record.embed.uri = $uri | .record.embed.cid = $cid' \
-  | tee examples/data/spin-droplet-0001/0003-ccb/request.json
-file="examples/data/spin-droplet-0001/0003-ccb/request.json"
-goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
-  | tee "$(dirname "${file}")/response.json" | jq
-
-# 4. Alice pays Bob via x402 (recorded as CCBAP referencing the CCB)
-IN="$(cat examples/data/spin-droplet-0001/0003-ccb/response.json | jq -c)"
-OUT_OLD="$(cat examples/data/spin-droplet-0001/0004-ccbap/request.json | jq -c)"
-echo "${OUT_OLD}" \
-  | jq --arg uri "$(echo "${IN}" | jq -r '.uri')" \
-       --arg cid "$(echo "${IN}" | jq -r '.cid')" \
-       '.record.embed.uri = $uri | .record.embed.cid = $cid' \
-  | tee examples/data/spin-droplet-0001/0004-ccbap/request.json
-file="examples/data/spin-droplet-0001/0004-ccbap/request.json"
-goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
-  | tee "$(dirname "${file}")/response.json" | jq
-
-# 5. Alice creates the CCBA referencing CCRFP, CCB, and CCBAP
-CCRFP="$(cat examples/data/spin-droplet-0001/0001-ccrfp/response.json | jq -c)"
-CCB="$(cat examples/data/spin-droplet-0001/0003-ccb/response.json | jq -c)"
-CCBAP="$(cat examples/data/spin-droplet-0001/0004-ccbap/response.json | jq -c)"
-cat examples/data/spin-droplet-0001/0005-ccba/request.json \
-  | jq \
-      --arg ccrfp_uri "$(echo "${CCRFP}" | jq -r '.uri')" \
-      --arg ccrfp_cid "$(echo "${CCRFP}" | jq -r '.cid')" \
-      --arg ccb_uri "$(echo "${CCB}" | jq -r '.uri')" \
-      --arg ccb_cid "$(echo "${CCB}" | jq -r '.cid')" \
-      --arg ccbap_uri "$(echo "${CCBAP}" | jq -r '.uri')" \
-      --arg ccbap_cid "$(echo "${CCBAP}" | jq -r '.cid')" \
-      '.record.embed.uri = $ccrfp_uri
-       | .record.embed.cid = $ccrfp_cid
-       | .record.bid.uri = $ccb_uri
-       | .record.bid.cid = $ccb_cid
-       | .record.payment.uri = $ccbap_uri
-       | .record.payment.cid = $ccbap_cid' \
-  | tee examples/data/spin-droplet-0001/0005-ccba/request.json
-file="examples/data/spin-droplet-0001/0005-ccba/request.json"
-goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" \
-  | tee "$(dirname "${file}")/response.json" | jq
-
-# 6. Hand the CCBA AT URI/CID to the provider's /ccr endpoint to spin compute
-curl "https://compute-contract.johnandersen777.bsky.social.fedproxy.com/ccr/$(cat examples/data/spin-droplet-0001/0005-ccba/response.json | jq -r .uri)/$(cat examples/data/spin-droplet-0001/0005-ccba/response.json | jq -r .cid)" | jq
-```
-
-Read CCRFPs from the firehose
-
-```bash
-uv run ~/src/digitalocean-labs/droplet-oidc-poc/src/workload_identity_oauth_reverse_proxy/firehose_to_ndjson.py alice.example.com | jq
-```
-
-**request.json**
-
-```json
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<'EOF' | tee 0001-vm.json
 {
-  "repo": "did:plc:alice0000000000000000000",
-  "collection": "com.publicdomainrelay.temp.ccrfp",
+  "repo": "did:plc:alice",
+  "collection": "com.publicdomainrelay.temp.compute.vm",
   "record": {
-    "$type": "com.publicdomainrelay.temp.ccrfp",
-    "cpus": 1,
-    "mem": "512M",
-    "disk": "10G",
-    "network": "500G"
+    "$type": "com.publicdomainrelay.temp.compute.vm",
+    "role": "my-cool-role",
+    "user_data": "#cloud-config\npackages:\n  - openssh-server\n..."
   }
 }
+EOF
 ```
+
+### 2. Alice creates market.rfp (domain envelope)
 
 ```bash
-goat get $(goat xrpc procedure @pds com.atproto.repo.createRecord - < request.json  | tee response.json | jq -r '.uri')
-```
-
-```json
+VM_URI=$(jq -r '.uri' 0001-vm.json)
+VM_CID=$(jq -r '.cid' 0001-vm.json)
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0002-rfp.json
 {
-  "repo": "did:plc:alice0000000000000000000",
-  "handle": "alice.example.com",
-  "seq": 29814868114,
-  "time": "2026-05-07T03:26:47.466Z",
-  "action": "create",
-  "collection": "com.publicdomainrelay.temp.ccrfp",
-  "rkey": "3mlabgut5c62t",
-  "uri": "at://did:plc:alice0000000000000000000/com.publicdomainrelay.temp.ccrfp/3mlabgut5c62t",
-  "record_type": "unknown",
+  "repo": "did:plc:alice",
+  "collection": "com.publicdomainrelay.temp.market.rfp",
   "record": {
-    "mem": "512M",
-    "cpus": 1,
-    "disk": "10G",
-    "$type": "com.publicdomainrelay.temp.ccrfp",
-    "network": "500G"
+    "$type": "com.publicdomainrelay.temp.market.rfp",
+    "domain": "compute",
+    "payload": { "$type": "com.atproto.repo.strongRef", "uri": "$VM_URI", "cid": "$VM_CID" },
+    "submitBid": "did:plc:alice#pdr_temp_market",
+    "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   }
 }
+EOF
+```
+
+### 3. Bob creates bids.free or bids.x402 (settlement)
+
+```bash
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<'EOF' | tee 0003-bids.json
+{
+  "repo": "did:plc:bob",
+  "collection": "com.publicdomainrelay.temp.market.bids.free",
+  "record": {
+    "$type": "com.publicdomainrelay.temp.market.bids.free",
+    "cost": 0,
+    "currency": "USDC",
+    "frequency": "one-time",
+    "prepay": false,
+    "url": "https://bob-bidder.localhost"
+  }
+}
+EOF
+```
+
+### 4. Bob creates config.wif.simple
+
+```bash
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<'EOF' | tee 0004-wif.json
+{
+  "repo": "did:plc:bob",
+  "collection": "com.publicdomainrelay.temp.compute.config.wif.simple",
+  "record": {
+    "$type": "com.publicdomainrelay.temp.compute.config.wif.simple",
+    "accept_path": "$HOME/secrets/publicdomainrelay.com/market/accept.json",
+    "issuer_uri": "https://droplet-oidc.its1337.com",
+    "to_issue": "exchange-custom-droplet-oidc-poc",
+    "token_path": "/var/run/secrets/wid/token",
+    "url_path": "/var/run/secrets/wid/url",
+    "url_route": "/v1/oidc/issue",
+    "subject": "actx:<team-uuid>:plc:<requester-plc>:role:<role>"
+  }
+}
+EOF
+```
+
+### 5. Bob creates market.bid (bid envelope)
+
+```bash
+RFP_URI=$(jq -r '.uri' 0002-rfp.json)
+RFP_CID=$(jq -r '.cid' 0002-rfp.json)
+BIDS_URI=$(jq -r '.uri' 0003-bids.json)
+BIDS_CID=$(jq -r '.cid' 0003-bids.json)
+WIF_URI=$(jq -r '.uri' 0004-wif.json)
+WIF_CID=$(jq -r '.cid' 0004-wif.json)
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0005-bid.json
+{
+  "repo": "did:plc:bob",
+  "collection": "com.publicdomainrelay.temp.market.bid",
+  "record": {
+    "$type": "com.publicdomainrelay.temp.market.bid",
+    "rfp": { "$type": "com.atproto.repo.strongRef", "uri": "$RFP_URI", "cid": "$RFP_CID" },
+    "payload": { "$type": "com.atproto.repo.strongRef", "uri": "$BIDS_URI", "cid": "$BIDS_CID" },
+    "config": { "$type": "com.atproto.repo.strongRef", "uri": "$WIF_URI", "cid": "$WIF_CID" }
+  }
+}
+EOF
+```
+
+### 6. Alice creates market.accept
+
+```bash
+BID_URI=$(jq -r '.uri' 0005-bid.json)
+BID_CID=$(jq -r '.cid' 0005-bid.json)
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0006-accept.json
+{
+  "repo": "did:plc:alice",
+  "collection": "com.publicdomainrelay.temp.market.accept",
+  "record": {
+    "$type": "com.publicdomainrelay.temp.market.accept",
+    "rfp": { "$type": "com.atproto.repo.strongRef", "uri": "$RFP_URI", "cid": "$RFP_CID" },
+    "bid": { "$type": "com.atproto.repo.strongRef", "uri": "$BID_URI", "cid": "$BID_CID" },
+    "submitEvent": "did:plc:alice#pdr_temp_compute_event"
+  }
+}
+EOF
+```
+
+### 7. Bob creates market.receipt
+
+```bash
+ACCEPT_URI=$(jq -r '.uri' 0006-accept.json)
+ACCEPT_CID=$(jq -r '.cid' 0006-accept.json)
+goat xrpc procedure @pds com.atproto.repo.createRecord - <<EOF | tee 0007-receipt.json
+{
+  "repo": "did:plc:bob",
+  "collection": "com.publicdomainrelay.temp.market.receipt",
+  "record": {
+    "$type": "com.publicdomainrelay.temp.market.receipt",
+    "rfp": { "$type": "com.atproto.repo.strongRef", "uri": "$RFP_URI", "cid": "$RFP_CID" },
+    "bid": { "$type": "com.atproto.repo.strongRef", "uri": "$BID_URI", "cid": "$BID_CID" },
+    "accept": { "$type": "com.atproto.repo.strongRef", "uri": "$ACCEPT_URI", "cid": "$ACCEPT_CID" }
+  }
+}
+EOF
+```
+
+### Fetch records from the network
+
+```bash
+# Get any record by AT URI
+goat get at://did:plc:alice/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
+
+# List all records of a collection for a DID
+goat ls did:plc:alice com.publicdomainrelay.temp.market.rfp
+
+# Watch firehose for new RFPs
+goat firehose | jq 'select(.collection == "com.publicdomainrelay.temp.market.rfp")'
 ```
 
 ## Testing
 
-The loop iterates alphabetically, so directories run in order:
-`0001-ccrfp` → `0002-rfp` → `0003-ccb` → `0004-ccbap` → `0005-ccba`.
+Run the full flow locally with a local dispatcher, fake PLC, and
+container-mode compute provider:
 
 ```bash
-$ (set -x; for dir in $(ls examples/data/spin-droplet-0001/); do file="examples/data/spin-droplet-0001/${dir}/request.json"; goat xrpc procedure @pds com.atproto.repo.createRecord - < "${file}" | tee "$(dirname "${file}")/response.json" | yq -P; done)
-+ tee examples/data/spin-droplet-0001/0001-ccrfp/response.json
-uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.ccrfp/3mlabxf5xxg2t
-cid: bafyreiblivinfkc2hqhoe367b5ggdlieyviyun652g7qxn2p2rl4orfpsq
-commit:
-  cid: bafyreibszjqfmvk6nbrdofqjkwvrvcdscphoidun6yxrtm55quhaylj62a
-  rev: 3mlabxf65sw2t
-validationStatus: unknown
-+ tee examples/data/spin-droplet-0001/0002-rfp/response.json
-uri: at://did:plc:5svqtrhheairglgiiyvutzik/com.publicdomainrelay.temp.rfp/3mlabxf5xxg2u
-cid: bafyreidexamplecidforthetoprfprecord000000000000000000000000
-validationStatus: unknown
+# From the publicdomainrelay monorepo:
+deno run --allow-all atproto-market/compute-contract-full-flow/run_full_flow.ts
 ```
+
+See [`publicdomainrelay/compute-contract-full-flow/`](https://github.com/publicdomainrelay/publicdomainrelay/tree/main/compute-contract-full-flow)
+for logs and records from a live run.
 
 ## TODO
 
