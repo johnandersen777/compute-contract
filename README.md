@@ -17,12 +17,12 @@
 - Alice makes her RFP/CCRFP pair available to the network
 - Bob and Eve each issue a Compute Contract Bid (CCB) against the CCRFP
 - Alice's policy engine sees that she's denounced Eve and vouched for Bob
-- Alice issues a Compute Contract Bid Accept (CCBA) against Bob's CCB.
-- Alice issues a x402 payment to Bob per info provided in his CCB.
-  - Using the CCBA AT URI and CID to the CCB's stated CCR endpoint.
-- Bob issues a Compute Contract Receipt (CCR) over the CCRFP, CCB, and CCBA
-  - The CCR references the CCRFP, the CCB, and the CCBA.
-- Bob builds to the CCRFP manifest's spec
+- Alice issues a Compute Contract Bid Accept (market.accept) against Bob's bid.
+- Alice issues a x402 payment to Bob per info provided in his bid.
+  - Using the accept AT URI and CID to the bid's stated x402 endpoint.
+- Bob issues a Compute Contract Receipt (market.receipt) over the RFP, bid, and accept
+  - The receipt references the RFP, the bid, and the accept.
+- Bob builds to the RFP manifest's spec
 
 All cross-record references use `com.atproto.repo.strongRef`
 (`{$type, uri, cid}`), so the chain is content-addressed end-to-end.
@@ -130,60 +130,15 @@ stateDiagram-v2
     Settled --> [*]
 ```
 
-## SSH Tunnel Topology
+## Transport
 
-Guest VM/container never opens a public port. All traffic flows through the
-did-key-relay dispatcher. The requester reaches the guest exclusively through
-this relay — SSH `ProxyCommand` over a WebSocket tunnel.
+Guest reachability is a transport concern, not part of the core protocol.
+The reference implementation uses the did-key-relay dispatcher with
+fedproxy.com for subdomain routing and SSH-over-WebSocket tunneling.
 
-```
-requester SSH client
-  ProxyCommand websocat --binary wss://<service>--did-plc-<key>.fedproxy.com
-    → fedproxy dispatcher (did-key-relay, routes by SNI subdomain)
-      → fedproxy-client (guest side, dialed outbound through relay)
-        → websocat ws-l:127.0.0.1:8080 → sshd 127.0.0.1:22
-```
-
-### Guest cloud-init (what Bob injects)
-
-The `compute.vm.user_data` is a `#cloud-config` YAML document. Bob's
-compute provider enriches it with OIDC provisioning (nonce + prove
-script) and RBAC grants, then hands it to the container/VM backend. The
-default transport (fedproxy) installs:
-
-- **sshd** — key-only root login, loopback-only (`ListenAddress 127.0.0.1`)
-- **websocat** — bridges `ws-l:127.0.0.1:8080 → tcp:127.0.0.1:22`
-- **fedproxy-client** — fronts websocat, dials the relay outbound, registers the guest's FQDN
-- Alternative: **tunnel-subscriber** (did-key-relay xrpc subscriber) replaces
-  fedproxy-client + websocat with a single Deno process that speaks the relay
-  tunnel protocol directly
-
-### Service endpoints on bidder
-
-The bidder exposes these XRPC service endpoints (advertised via its
-`did:web` document, proxied through the relay):
-
-| NSID | Method | Purpose |
-|------|--------|---------|
-| `com.publicdomainrelay.temp.market.submitRfp` | XRPC procedure | Requester pushes RFP to bidder |
-| `com.publicdomainrelay.temp.market.submitAccept` | XRPC procedure | Requester pushes Accept to winning bidder |
-| `com.publicdomainrelay.temp.market.submitEvent` | XRPC procedure | Requester sends lifecycle events (vm.delete, etc.) |
-
-### Bidder discovery (how requester finds bidders)
-
-1. **Relay index** (`listReposByCollection` on `market.offering`) — primary
-2. **Firehose watch** (subscribeRepos / Jetstream filtered to `market.offering`) — live complement
-3. **Vouch graph** (`sh.tangled.graph.vouch`) — social-trust allowlist
-4. **Manual** (`extraBidderDids` / `denyBidderDids` in contract options)
-
-### Record signatures
-
-All requester-authored records (`market.rfp`, `market.accept`) carry inline
-badge.blue attestations (`network.attested.signature`). The attestation
-key is published in the author's DID document. The bidder verifies
-signatures before dispatching to callbacks. The requester verifies the
-receipt's signature + remote proof (receipt binds to the accept record)
-before trusting the provisioned guest.
+See **[docs/ATPROTO_REVERSE_PROXY.md](docs/ATPROTO_REVERSE_PROXY.md)**
+for the full tunnel topology, cloud-init templates, service endpoint
+table, bidder discovery channels, and record signature details.
 
 ## End-to-end sequence
 
@@ -506,18 +461,22 @@ flowchart LR
 ## Real flow — records from a live run
 
 Records captured 2026-07-07 from a local end-to-end run (requester →
-dispatcher → bidder → container provision). The flow produced these AT
-Protocol records:
+dispatcher → bidder → container provision). Records are shown as YAML
+for readability; on the wire they are JSON in ATProto repositories.
 
 ### 1. Requester publishes compute.vm (VM spec + cloud-init user_data)
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.compute.vm",
-  "role": "compute-eb56a1fc",
-  "user_data": "#cloud-config\npackages:\n  - openssh-server\n  ...",
-  "createdAt": "2026-07-07T05:58:02.527Z"
-}
+```yaml
+$type: com.publicdomainrelay.temp.compute.vm
+role: compute-eb56a1fc
+user_data: |
+  #cloud-config
+  packages:
+    - openssh-server
+    ...
+createdAt: "2026-07-07T05:58:02.527Z"
+# uri: at://did:plc:requester/com.publicdomainrelay.temp.compute.vm/3mpzwdilhdk2a
+# cid: bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym
 ```
 
 The `user_data` field carries the full `#cloud-config` YAML: sshd,
@@ -527,24 +486,23 @@ private key for the SSH session.
 
 ### 2. Requester publishes market.rfp (domain-tagged envelope)
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.rfp",
-  "domain": "compute",
-  "payload": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.compute.vm/3mpzwdilhdk2a",
-    "cid": "bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym"
-  },
-  "submitBid": "did:plc:requester#pdr_temp_market",
-  "createdAt": "2026-07-07T05:58:02.527Z",
-  "signatures": [{
-    "$type": "network.attested.signature",
-    "key": "did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ",
-    "issuer": "did:plc:requester",
-    "signature": { "$bytes": "..." }
-  }]
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.rfp
+domain: compute
+payload:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:requester/com.publicdomainrelay.temp.compute.vm/3mpzwdilhdk2a
+  cid: bafyreihfivdmlguypz4nxypdkd5lgdhgqauejkthsfkkxg7vim2faxm6ym
+submitBid: did:plc:requester#pdr_temp_market
+createdAt: "2026-07-07T05:58:02.527Z"
+signatures:
+  - $type: network.attested.signature
+    key: did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ
+    issuer: did:plc:requester
+    signature:
+      $bytes: "..."
+# uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
+# cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
 ```
 
 Key fields beyond the old schema:
@@ -559,14 +517,14 @@ Key fields beyond the old schema:
 
 ### 3. Bidder publishes market.offering (discoverability)
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.offering",
-  "endpointUrl": "https://did-key-....localhost",
-  "appliesTo": ["com.publicdomainrelay.temp.compute.vm"],
-  "createdAt": "2026-07-07T05:58:02.514Z",
-  "refreshedAt": "2026-07-07T05:58:02.514Z"
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.offering
+endpointUrl: https://did-key-....localhost
+appliesTo:
+  - com.publicdomainrelay.temp.compute.vm
+createdAt: "2026-07-07T05:58:02.514Z"
+refreshedAt: "2026-07-07T05:58:02.514Z"
+# uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.offering/3mpzwdil2nc2a
 ```
 
 One offering per bidder DID. The bidder creates it on `beginServe()` and
@@ -576,17 +534,16 @@ offering records (relay index, firehose, or manual DID list).
 
 ### 4. Bidder publishes config.wif.simple (WIF parameters)
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.compute.config.wif.simple",
-  "accept_path": "$HOME/secrets/publicdomainrelay.com/market/accept.json",
-  "issuer_uri": "https://did-key-....localhost",
-  "to_issue": "exchange-custom-droplet-oidc-poc",
-  "token_path": "/var/run/secrets/wid/token",
-  "url_path": "/var/run/secrets/wid/url",
-  "url_route": "/v1/oidc/issue",
-  "subject": "actx:<team-uuid>:plc:<requester-plc>:role:<role>"
-}
+```yaml
+$type: com.publicdomainrelay.temp.compute.config.wif.simple
+accept_path: $HOME/secrets/publicdomainrelay.com/market/accept.json
+issuer_uri: https://did-key-....localhost
+to_issue: exchange-custom-droplet-oidc-poc
+token_path: /var/run/secrets/wid/token
+url_path: /var/run/secrets/wid/url
+url_route: /v1/oidc/issue
+subject: actx:<team-uuid>:plc:<requester-plc>:role:<role>
+# uri: at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a
 ```
 
 The requester reads this to understand the provider's OIDC issuer, token
@@ -596,50 +553,43 @@ where the accept bundle JSON will be written (cloud-init `write_files`).
 ### 5. Bidder publishes bids.free or bids.x402 (settlement)
 
 Free settlement (no payment):
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.bids.free",
-  "cost": 0,
-  "currency": "USDC",
-  "frequency": "one-time",
-  "prepay": false,
-  "url": "https://bidder.localhost"
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.bids.free
+cost: 0
+currency: USDC
+frequency: one-time
+prepay: false
+url: https://bidder.localhost
 ```
 
 x402 settlement (paid):
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.bids.x402",
-  "cost": 0.10,
-  "currency": "USDC",
-  "frequency": "hourly",
-  "prepay": true,
-  "url": "https://compute-contract.bob.example/receipt"
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.bids.x402
+cost: 0.10
+currency: USDC
+frequency: hourly
+prepay: true
+url: https://compute-contract.bob.example/receipt
 ```
 
 ### 6. Bidder publishes market.bid (bid envelope)
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.bid",
-  "rfp": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a",
-    "cid": "bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty"
-  },
-  "payload": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.market.bids.free/3mpzwdilwxk2a",
-    "cid": "..."
-  },
-  "config": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a",
-    "cid": "..."
-  }
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.bid
+rfp:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
+  cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
+payload:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bids.free/3mpzwdilwxk2a
+  cid: bafyrei...free
+config:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bidder/com.publicdomainrelay.temp.compute.config.wif.simple/3mpzwdilvyc2a
+  cid: bafyrei...wif
+# uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a
+# cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
 ```
 
 The bid wraps three strongRefs: `rfp` (back to the RFP), `payload`
@@ -648,23 +598,26 @@ bids by `payload.cost` (lowest wins).
 
 ### 7. Requester publishes market.accept
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.accept",
-  "rfp": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a",
-    "cid": "bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty"
-  },
-  "bid": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a",
-    "cid": "bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe"
-  },
-  "submitEvent": "did:plc:requester#pdr_temp_compute_event",
-  "createdAt": "2026-07-07T05:58:17.552Z",
-  "signatures": [{ "$type": "network.attested.signature", ... }]
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.accept
+rfp:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
+  cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
+bid:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a
+  cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
+submitEvent: did:plc:requester#pdr_temp_compute_event
+createdAt: "2026-07-07T05:58:17.552Z"
+signatures:
+  - $type: network.attested.signature
+    key: did:key:zQ3shscC3Ls8YczdwNYCk9n9oSLRagGvkSXXZrveeDvBmAavZ
+    issuer: did:plc:requester
+    signature:
+      $bytes: "..."
+# uri: at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a
+# cid: bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a
 ```
 
 `submitEvent` is the requester's event endpoint — the bidder POSTs
@@ -673,25 +626,22 @@ signed the same way as the RFP.
 
 ### 8. Bidder publishes market.receipt
 
-```json
-{
-  "$type": "com.publicdomainrelay.temp.market.receipt",
-  "rfp": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a",
-    "cid": "bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty"
-  },
-  "bid": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a",
-    "cid": "bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe"
-  },
-  "accept": {
-    "$type": "com.atproto.repo.strongRef",
-    "uri": "at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a",
-    "cid": "bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a"
-  }
-}
+```yaml
+$type: com.publicdomainrelay.temp.market.receipt
+rfp:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.rfp/3mpzwdilics2a
+  cid: bafyreigalf6jzbujgvi5kliiliir6rv2z4t44gwc4tuyi6m342pi6bhrty
+bid:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.bid/3mpzwdilwxl2a
+  cid: bafyreihvbtezemxs4yhmcdu7xldhvv47l5l3b7evzdoilxd3bxevgbiihe
+accept:
+  $type: com.atproto.repo.strongRef
+  uri: at://did:plc:requester/com.publicdomainrelay.temp.market.accept/3mpzwdwvz632a
+  cid: bafyreifesc72g5lgb2gnw7tlvfpjusyuhn3x47zdwrwhravk25camhqm3a
+# uri: at://did:plc:bidder/com.publicdomainrelay.temp.market.receipt/3mpzwdwway32a
+# cid: bafyreidjsnqsopfeu52yljhr36zffrfzlw7nrixcojmcsv7rmp7k53mkwe
 ```
 
 The receipt is the terminal record. It strongRefs RFP → Bid → Accept.
